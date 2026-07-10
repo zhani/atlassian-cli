@@ -235,3 +235,51 @@ func TestHumanSize(t *testing.T) {
 		}
 	}
 }
+
+func TestPrintIssueCustomFields(t *testing.T) {
+	t.Parallel()
+	issue := &jira.Issue{
+		Key: "PROJ-1",
+		Fields: jira.IssueFields{
+			Summary: "Task",
+			Custom: map[string]any{
+				"customfield_10001": "sprint-42",
+				"customfield_10002": map[string]any{"value": "High"},
+			},
+		},
+	}
+
+	tests := []struct {
+		name     string
+		format   Format
+		contains []string
+	}{
+		{
+			name:     "markdown lists custom field rows",
+			format:   Markdown,
+			contains: []string{"customfield_10001", "sprint-42", "customfield_10002", `"value":"High"`},
+		},
+		{
+			name:     "json flattens custom fields",
+			format:   JSON,
+			contains: []string{`"customfield_10001"`, `"sprint-42"`},
+		},
+	}
+
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			var buf bytes.Buffer
+			if err := New(tt.format, &buf).PrintIssue(issue); err != nil {
+				t.Fatalf("PrintIssue() error: %v", err)
+			}
+			out := buf.String()
+			for _, want := range tt.contains {
+				if !strings.Contains(out, want) {
+					t.Errorf("output does not contain %q\ngot: %s", want, out)
+				}
+			}
+		})
+	}
+}
