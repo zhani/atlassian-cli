@@ -85,7 +85,10 @@ func (c *Client) Do(ctx context.Context, method, path string, query url.Values, 
 }
 
 func (c *Client) do(ctx context.Context, method, path string, query url.Values, body any) (*http.Response, error) {
-	u := c.baseURL + path
+	u := path
+	if !strings.HasPrefix(path, "http://") && !strings.HasPrefix(path, "https://") {
+		u = c.baseURL + path
+	}
 	if len(query) > 0 {
 		u += "?" + query.Encode()
 	}

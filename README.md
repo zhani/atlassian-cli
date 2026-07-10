@@ -144,6 +144,13 @@ atlassian-cli jira issue transition PROJ-123 "In Progress"
 # Comments
 atlassian-cli jira issue comment list PROJ-123
 atlassian-cli jira issue comment add PROJ-123 --body "Looks good to me"
+
+# Attachments
+atlassian-cli jira issue attachment list PROJ-123                          # List attachments on an issue
+atlassian-cli jira issue attachment get 10123                             # Show a single attachment's metadata by ID
+atlassian-cli jira issue attachment download PROJ-123 design.pdf         # Download by filename (saved as ./design.pdf)
+atlassian-cli jira issue attachment download PROJ-123 10123 --file out.pdf  # Download by attachment ID to a path
+atlassian-cli jira issue attachment download PROJ-123 design.pdf --file - # Stream to stdout
 ```
 
 ### Confluence
@@ -165,6 +172,11 @@ atlassian-cli confluence label remove 12345 outdated
 atlassian-cli confluence restriction list 12345
 atlassian-cli confluence restriction add 12345 --operation update --type user --name <account-id>
 atlassian-cli confluence restriction remove 12345 --operation update --type user --name <account-id>
+
+# Attachments
+atlassian-cli confluence attachment list 12345                            # List attachments on a page
+atlassian-cli confluence attachment download 12345 diagram.png           # Download by title (saved as ./diagram.png)
+atlassian-cli confluence attachment download 12345 att456 --file out.png  # Download by attachment ID to a path
 ```
 
 ## Output Formats
@@ -219,9 +231,11 @@ Available tool groups:
 - `jira_update` - Update issues
 - `jira_delete` - Delete issues
 - `jira_transition` - Transition issues, get available transitions
+- `jira_attachment` - List, get, and download issue attachments
 - `confluence_page` - Get page content
 - `confluence_label` - Label management
 - `confluence_restriction` - Page restriction management
+- `confluence_attachment` - List and download page attachments
 
 ### Claude Code Integration
 

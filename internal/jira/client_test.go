@@ -3,6 +3,7 @@ package jira
 import (
 	"context"
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -210,6 +211,95 @@ func TestAddComment(t *testing.T) {
 				t.Errorf("AddComment() diff (-want +got):\n%s", diff)
 			}
 		})
+	}
+}
+
+func TestGetAttachments(t *testing.T) {
+	t.Parallel()
+	attachments := []Attachment{
+		{ID: "10", Filename: "spec.pdf", Size: 2048, MimeType: "application/pdf", Content: "http://x/rest/api/2/attachment/content/10"},
+		{ID: "11", Filename: "logo.png", Size: 512, MimeType: "image/png", Content: "http://x/rest/api/2/attachment/content/11"},
+	}
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("/rest/api/2/issue/TEST-1", func(w http.ResponseWriter, r *http.Request) {
+		if got := r.URL.Query().Get("fields"); got != "attachment" {
+			t.Errorf("expected fields=attachment, got %q", got)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(Issue{Fields: IssueFields{Attachment: attachments}})
+	})
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+
+	got, err := newTestJiraClient(srv.URL).GetAttachments(context.Background(), "TEST-1")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if diff := cmp.Diff(attachments, got); diff != "" {
+		t.Errorf("GetAttachments() diff (-want +got):\n%s", diff)
+	}
+}
+
+func TestGetAttachment(t *testing.T) {
+	t.Parallel()
+	want := &Attachment{ID: "10", Filename: "spec.pdf", Size: 2048, MimeType: "application/pdf"}
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("/rest/api/2/attachment/10", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(want)
+	})
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+
+	got, err := newTestJiraClient(srv.URL).GetAttachment(context.Background(), "10")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if diff := cmp.Diff(want, got); diff != "" {
+		t.Errorf("GetAttachment() diff (-want +got):\n%s", diff)
+	}
+}
+
+func TestDownloadAttachment(t *testing.T) {
+	t.Parallel()
+	const payload = "file-bytes"
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("/rest/api/2/attachment/content/10", func(w http.ResponseWriter, r *http.Request) {
+		w.Write([]byte(payload))
+	})
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+
+	// Absolute content URL (as returned by Jira) must be handled directly.
+	body, err := newTestJiraClient(srv.URL).DownloadAttachment(context.Background(), srv.URL+"/rest/api/2/attachment/content/10")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	defer body.Close()
+	data, err := io.ReadAll(body)
+	if err != nil {
+		t.Fatalf("read body: %v", err)
+	}
+	if string(data) != payload {
+		t.Errorf("DownloadAttachment() = %q, want %q", data, payload)
+	}
+}
+
+func TestDownloadAttachmentError(t *testing.T) {
+	t.Parallel()
+	mux := http.NewServeMux()
+	mux.HandleFunc("/rest/api/2/attachment/content/404", func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusNotFound)
+	})
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+
+	_, err := newTestJiraClient(srv.URL).DownloadAttachment(context.Background(), srv.URL+"/rest/api/2/attachment/content/404")
+	if err == nil {
+		t.Fatal("expected error but got nil")
 	}
 }
 

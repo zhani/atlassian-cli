@@ -3,6 +3,9 @@ package mcptools
 import (
 	"context"
 	"encoding/json"
+	"fmt"
+	"io"
+	"os"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/putcho01/atlassian-cli/internal/config"
@@ -52,6 +55,20 @@ type getTransitionsInput struct {
 
 type getSubtasksInput struct {
 	Key string `json:"key" jsonschema:"description=The parent Jira issue key"`
+}
+
+type listAttachmentsInput struct {
+	Key string `json:"key" jsonschema:"description=The Jira issue key"`
+}
+
+type getAttachmentInput struct {
+	ID string `json:"id" jsonschema:"description=The attachment ID"`
+}
+
+type downloadAttachmentInput struct {
+	Key  string `json:"key" jsonschema:"description=The Jira issue key"`
+	Ref  string `json:"ref" jsonschema:"description=Attachment filename or ID to download"`
+	Path string `json:"path" jsonschema:"description=Local file path to write the attachment to"`
 }
 
 // --- Registration ---
@@ -185,6 +202,74 @@ func registerJiraTools(s *mcp.Server, enabledGroups []string) {
 				return nil, nil, err
 			}
 			return textResult(subtasks)
+		})
+
+	maybeAdd(s, enabledGroups, "jira_list_attachments", "List attachments on a Jira issue",
+		func(ctx context.Context, req *mcp.CallToolRequest, input listAttachmentsInput) (*mcp.CallToolResult, any, error) {
+			client, err := newJiraClient()
+			if err != nil {
+				return nil, nil, err
+			}
+			attachments, err := client.GetAttachments(ctx, input.Key)
+			if err != nil {
+				return nil, nil, err
+			}
+			return textResult(attachments)
+		})
+
+	maybeAdd(s, enabledGroups, "jira_get_attachment", "Get metadata for a single Jira attachment by ID",
+		func(ctx context.Context, req *mcp.CallToolRequest, input getAttachmentInput) (*mcp.CallToolResult, any, error) {
+			client, err := newJiraClient()
+			if err != nil {
+				return nil, nil, err
+			}
+			attachment, err := client.GetAttachment(ctx, input.ID)
+			if err != nil {
+				return nil, nil, err
+			}
+			return textResult(attachment)
+		})
+
+	maybeAdd(s, enabledGroups, "jira_download_attachment", "Download a Jira issue attachment to a local file",
+		func(ctx context.Context, req *mcp.CallToolRequest, input downloadAttachmentInput) (*mcp.CallToolResult, any, error) {
+			client, err := newJiraClient()
+			if err != nil {
+				return nil, nil, err
+			}
+			attachments, err := client.GetAttachments(ctx, input.Key)
+			if err != nil {
+				return nil, nil, err
+			}
+			var match *jira.Attachment
+			for i := range attachments {
+				if attachments[i].ID == input.Ref || attachments[i].Filename == input.Ref {
+					match = &attachments[i]
+					break
+				}
+			}
+			if match == nil {
+				return nil, nil, fmt.Errorf("no attachment matching %q found on %s", input.Ref, input.Key)
+			}
+			body, err := client.DownloadAttachment(ctx, match.Content)
+			if err != nil {
+				return nil, nil, err
+			}
+			defer body.Close()
+			f, err := os.Create(input.Path)
+			if err != nil {
+				return nil, nil, err
+			}
+			defer f.Close()
+			n, err := io.Copy(f, body)
+			if err != nil {
+				return nil, nil, err
+			}
+			return textResult(map[string]any{
+				"message":  "Attachment downloaded",
+				"filename": match.Filename,
+				"path":     input.Path,
+				"bytes":    n,
+			})
 		})
 }
 

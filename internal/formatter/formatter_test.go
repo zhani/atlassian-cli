@@ -166,3 +166,72 @@ func TestPrintComment(t *testing.T) {
 		})
 	}
 }
+
+func TestPrintAttachments(t *testing.T) {
+	t.Parallel()
+	attachments := []jira.Attachment{
+		{ID: "10", Filename: "spec.pdf", Size: 2048, MimeType: "application/pdf", Created: "2024-01-01"},
+		{ID: "11", Filename: "logo.png", Size: 512, MimeType: "image/png", Created: "2024-01-02"},
+	}
+
+	tests := []struct {
+		name     string
+		format   Format
+		contains []string
+	}{
+		{
+			name:     "table contains id filename and size",
+			format:   Table,
+			contains: []string{"10", "spec.pdf", "2.0 KB", "application/pdf", "logo.png", "512 B"},
+		},
+		{
+			name:     "markdown contains header and rows",
+			format:   Markdown,
+			contains: []string{"| ID |", "spec.pdf", "logo.png"},
+		},
+		{
+			name:     "json contains fields",
+			format:   JSON,
+			contains: []string{`"id"`, `"spec.pdf"`, `"filename"`},
+		},
+	}
+
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			var buf bytes.Buffer
+			f := New(tt.format, &buf)
+			if err := f.PrintAttachments(attachments); err != nil {
+				t.Fatalf("PrintAttachments() error: %v", err)
+			}
+			out := buf.String()
+			for _, want := range tt.contains {
+				if !strings.Contains(out, want) {
+					t.Errorf("output does not contain %q\ngot: %s", want, out)
+				}
+			}
+		})
+	}
+}
+
+func TestHumanSize(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		size int64
+		want string
+	}{
+		{0, "0 B"},
+		{512, "512 B"},
+		{1023, "1023 B"},
+		{1024, "1.0 KB"},
+		{2048, "2.0 KB"},
+		{1048576, "1.0 MB"},
+		{1073741824, "1.0 GB"},
+	}
+	for _, tt := range tests {
+		if got := humanSize(tt.size); got != tt.want {
+			t.Errorf("humanSize(%d) = %q, want %q", tt.size, got, tt.want)
+		}
+	}
+}
