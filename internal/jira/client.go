@@ -3,6 +3,7 @@ package jira
 import (
 	"context"
 	"fmt"
+	"io"
 	"net/url"
 	"strconv"
 	"strings"
@@ -121,6 +122,37 @@ func (c *Client) GetSubtasks(ctx context.Context, key string) ([]Issue, error) {
 		return nil, err
 	}
 	return issue.Fields.Subtasks, nil
+}
+
+// GetAttachments returns the attachments on an issue.
+func (c *Client) GetAttachments(ctx context.Context, key string) ([]Attachment, error) {
+	q := url.Values{}
+	q.Set("fields", "attachment")
+	var issue Issue
+	if err := c.http.Do(ctx, "GET", "/rest/api/2/issue/"+url.PathEscape(key), q, nil, &issue); err != nil {
+		return nil, err
+	}
+	return issue.Fields.Attachment, nil
+}
+
+// GetAttachment returns metadata for a single attachment by ID.
+func (c *Client) GetAttachment(ctx context.Context, id string) (*Attachment, error) {
+	var att Attachment
+	err := c.http.Do(ctx, "GET", "/rest/api/2/attachment/"+url.PathEscape(id), nil, nil, &att)
+	return &att, err
+}
+
+// DownloadAttachment streams the raw content of an attachment from its content URL.
+func (c *Client) DownloadAttachment(ctx context.Context, contentURL string) (io.ReadCloser, error) {
+	resp, err := c.http.Get(ctx, contentURL, nil)
+	if err != nil {
+		return nil, err
+	}
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		resp.Body.Close()
+		return nil, fmt.Errorf("download failed: HTTP %d", resp.StatusCode)
+	}
+	return resp.Body, nil
 }
 
 func buildCreateFields(input *CreateIssueInput) map[string]any {

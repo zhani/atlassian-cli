@@ -8,9 +8,11 @@ var toolGroups = map[string][]string{
 	"jira_update":            {"jira_update_issue"},
 	"jira_delete":            {"jira_delete_issue"},
 	"jira_transition":        {"jira_transition_issue", "jira_get_transitions"},
+	"jira_attachment":        {"jira_list_attachments", "jira_get_attachment", "jira_download_attachment"},
 	"confluence_page":        {"confluence_get_page"},
 	"confluence_label":       {"confluence_list_labels", "confluence_add_labels", "confluence_remove_label"},
 	"confluence_restriction": {"confluence_list_restrictions", "confluence_add_restriction", "confluence_remove_restriction"},
+	"confluence_attachment":  {"confluence_list_attachments", "confluence_download_attachment"},
 }
 
 func isToolEnabled(name string, enabledGroups []string) bool {

@@ -29,8 +29,20 @@ type IssueFields struct {
 	Project     *Project   `json:"project"`
 	Created     string     `json:"created"`
 	Updated     string     `json:"updated"`
-	Labels      []string   `json:"labels"`
-	Subtasks    []Issue    `json:"subtasks"`
+	Labels      []string     `json:"labels"`
+	Subtasks    []Issue      `json:"subtasks"`
+	Attachment  []Attachment `json:"attachment"`
+}
+
+// Attachment represents a file attached to a Jira issue.
+type Attachment struct {
+	ID       string `json:"id"`
+	Filename string `json:"filename"`
+	Author   *User  `json:"author"`
+	Created  string `json:"created"`
+	Size     int64  `json:"size"`
+	MimeType string `json:"mimeType"`
+	Content  string `json:"content"`
 }
 
 type Status struct {

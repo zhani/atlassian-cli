@@ -251,6 +251,90 @@ func (f *Formatter) PrintComment(c *jira.Comment) error {
 	}
 }
 
+// PrintAttachments prints a list of Jira issue attachments.
+func (f *Formatter) PrintAttachments(atts []jira.Attachment) error {
+	switch f.format {
+	case JSON:
+		return f.PrintJSON(atts)
+	case Markdown:
+		fmt.Fprintf(f.writer, "| ID | Filename | Size | Type | Created |\n")
+		fmt.Fprintf(f.writer, "|----|----------|------|------|---------|\n")
+		for _, a := range atts {
+			fmt.Fprintf(f.writer, "| %s | %s | %s | %s | %s |\n",
+				a.ID, a.Filename, humanSize(a.Size), a.MimeType, a.Created)
+		}
+		return nil
+	default:
+		tw := tabwriter.NewWriter(f.writer, 0, 4, 2, ' ', 0)
+		fmt.Fprintf(tw, "ID\tFILENAME\tSIZE\tTYPE\tCREATED\n")
+		for _, a := range atts {
+			fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\n", a.ID, a.Filename, humanSize(a.Size), a.MimeType, a.Created)
+		}
+		return tw.Flush()
+	}
+}
+
+// PrintAttachment prints a single Jira attachment's metadata.
+func (f *Formatter) PrintAttachment(a *jira.Attachment) error {
+	switch f.format {
+	case JSON:
+		return f.PrintJSON(a)
+	case Markdown:
+		fmt.Fprintf(f.writer, "## Attachment: %s\n\n", a.Filename)
+		fmt.Fprintf(f.writer, "| Field | Value |\n|-------|-------|\n")
+		fmt.Fprintf(f.writer, "| ID | %s |\n", a.ID)
+		fmt.Fprintf(f.writer, "| Filename | %s |\n", a.Filename)
+		fmt.Fprintf(f.writer, "| Size | %s |\n", humanSize(a.Size))
+		fmt.Fprintf(f.writer, "| Type | %s |\n", a.MimeType)
+		fmt.Fprintf(f.writer, "| Author | %s |\n", safeUserDisplay(a.Author, "Unknown"))
+		fmt.Fprintf(f.writer, "| Created | %s |\n", a.Created)
+		fmt.Fprintf(f.writer, "| Content | %s |\n", a.Content)
+		return nil
+	default:
+		tw := tabwriter.NewWriter(f.writer, 0, 4, 2, ' ', 0)
+		fmt.Fprintf(tw, "ID\tFILENAME\tSIZE\tTYPE\tAUTHOR\tCREATED\n")
+		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%s\n",
+			a.ID, a.Filename, humanSize(a.Size), a.MimeType, safeUserDisplay(a.Author, "Unknown"), a.Created)
+		return tw.Flush()
+	}
+}
+
+// PrintConfluenceAttachments prints a list of Confluence page attachments.
+func (f *Formatter) PrintConfluenceAttachments(atts []confluence.Attachment) error {
+	switch f.format {
+	case JSON:
+		return f.PrintJSON(atts)
+	case Markdown:
+		fmt.Fprintf(f.writer, "| ID | Title | Size | Type |\n")
+		fmt.Fprintf(f.writer, "|----|-------|------|------|\n")
+		for _, a := range atts {
+			fmt.Fprintf(f.writer, "| %s | %s | %s | %s |\n", a.ID, a.Title, humanSize(a.FileSize), a.MediaType)
+		}
+		return nil
+	default:
+		tw := tabwriter.NewWriter(f.writer, 0, 4, 2, ' ', 0)
+		fmt.Fprintf(tw, "ID\tTITLE\tSIZE\tTYPE\n")
+		for _, a := range atts {
+			fmt.Fprintf(tw, "%s\t%s\t%s\t%s\n", a.ID, a.Title, humanSize(a.FileSize), a.MediaType)
+		}
+		return tw.Flush()
+	}
+}
+
+// humanSize formats a byte count as a human-readable string.
+func humanSize(size int64) string {
+	const unit = 1024
+	if size < unit {
+		return fmt.Sprintf("%d B", size)
+	}
+	div, exp := int64(unit), 0
+	for n := size / unit; n >= unit; n /= unit {
+		div *= unit
+		exp++
+	}
+	return fmt.Sprintf("%.1f %cB", float64(size)/float64(div), "KMGTPE"[exp])
+}
+
 // PrintMessage prints a simple success/info message.
 func (f *Formatter) PrintMessage(msg string) error {
 	switch f.format {
