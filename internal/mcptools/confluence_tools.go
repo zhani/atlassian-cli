@@ -16,43 +16,43 @@ import (
 // --- Input types ---
 
 type getPageInput struct {
-	ID     string `json:"id" jsonschema:"description=The Confluence page ID"`
-	Expand string `json:"expand,omitempty" jsonschema:"description=Comma-separated list of properties to expand (default: body.storage,version)"`
+	ID     string `json:"id" jsonschema:"The Confluence page ID"`
+	Expand string `json:"expand,omitempty" jsonschema:"Comma-separated list of properties to expand (default: body.storage,version)"`
 }
 
 type listLabelsInput struct {
-	PageID string `json:"page_id" jsonschema:"description=The Confluence page ID"`
+	PageID string `json:"page_id" jsonschema:"The Confluence page ID"`
 }
 
 type addLabelsInput struct {
-	PageID string   `json:"page_id" jsonschema:"description=The Confluence page ID"`
-	Labels []string `json:"labels" jsonschema:"description=Labels to add"`
+	PageID string   `json:"page_id" jsonschema:"The Confluence page ID"`
+	Labels []string `json:"labels" jsonschema:"Labels to add"`
 }
 
 type removeLabelInput struct {
-	PageID string `json:"page_id" jsonschema:"description=The Confluence page ID"`
-	Label  string `json:"label" jsonschema:"description=Label name to remove"`
+	PageID string `json:"page_id" jsonschema:"The Confluence page ID"`
+	Label  string `json:"label" jsonschema:"Label name to remove"`
 }
 
 type listRestrictionsInput struct {
-	PageID string `json:"page_id" jsonschema:"description=The Confluence page ID"`
+	PageID string `json:"page_id" jsonschema:"The Confluence page ID"`
 }
 
 type restrictionInput struct {
-	PageID    string `json:"page_id" jsonschema:"description=The Confluence page ID"`
-	Operation string `json:"operation" jsonschema:"description=Operation type: read or update"`
-	Type      string `json:"type" jsonschema:"description=Restriction type: user or group"`
-	Name      string `json:"name" jsonschema:"description=Username or group name"`
+	PageID    string `json:"page_id" jsonschema:"The Confluence page ID"`
+	Operation string `json:"operation" jsonschema:"Operation type: read or update"`
+	Type      string `json:"type" jsonschema:"Restriction type: user or group"`
+	Name      string `json:"name" jsonschema:"Username or group name"`
 }
 
 type listAttachmentsPageInput struct {
-	PageID string `json:"page_id" jsonschema:"description=The Confluence page ID"`
+	PageID string `json:"page_id" jsonschema:"The Confluence page ID"`
 }
 
 type downloadAttachmentPageInput struct {
-	PageID string `json:"page_id" jsonschema:"description=The Confluence page ID"`
-	Ref    string `json:"ref" jsonschema:"description=Attachment title or ID to download"`
-	Path   string `json:"path" jsonschema:"description=Local file path to write the attachment to"`
+	PageID string `json:"page_id" jsonschema:"The Confluence page ID"`
+	Ref    string `json:"ref" jsonschema:"Attachment title or ID to download"`
+	Path   string `json:"path" jsonschema:"Local file path to write the attachment to"`
 }
 
 // --- Registration ---
