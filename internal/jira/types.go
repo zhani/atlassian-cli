@@ -1,5 +1,10 @@
 package jira
 
+import (
+	"encoding/json"
+	"strings"
+)
+
 // User represents a Jira user account.
 type User struct {
 	Self         string `json:"self"`
@@ -32,6 +37,69 @@ type IssueFields struct {
 	Labels      []string     `json:"labels"`
 	Subtasks    []Issue      `json:"subtasks"`
 	Attachment  []Attachment `json:"attachment"`
+
+	// Custom holds any customfield_* values returned by the API. It is
+	// populated on unmarshal and flattened back into the object on marshal,
+	// so custom fields survive a JSON round-trip.
+	Custom map[string]any `json:"-"`
+}
+
+// UnmarshalJSON decodes the known issue fields and captures every
+// customfield_* key into Custom.
+func (f *IssueFields) UnmarshalJSON(data []byte) error {
+	type alias IssueFields // avoid recursion into this method
+	var a alias
+	if err := json.Unmarshal(data, &a); err != nil {
+		return err
+	}
+	*f = IssueFields(a)
+
+	var raw map[string]json.RawMessage
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return err
+	}
+	for k, v := range raw {
+		if !strings.HasPrefix(k, "customfield_") {
+			continue
+		}
+		var val any
+		if err := json.Unmarshal(v, &val); err != nil {
+			return err
+		}
+		if val == nil {
+			continue // skip unset custom fields
+		}
+		if f.Custom == nil {
+			f.Custom = make(map[string]any)
+		}
+		f.Custom[k] = val
+	}
+	return nil
+}
+
+// MarshalJSON emits the known issue fields plus every captured custom field
+// flattened into the top-level object.
+func (f IssueFields) MarshalJSON() ([]byte, error) {
+	type alias IssueFields // avoid recursion into this method
+	base, err := json.Marshal(alias(f))
+	if err != nil {
+		return nil, err
+	}
+	if len(f.Custom) == 0 {
+		return base, nil
+	}
+	var m map[string]json.RawMessage
+	if err := json.Unmarshal(base, &m); err != nil {
+		return nil, err
+	}
+	for k, v := range f.Custom {
+		vb, err := json.Marshal(v)
+		if err != nil {
+			return nil, err
+		}
+		m[k] = vb
+	}
+	return json.Marshal(m)
 }
 
 // Attachment represents a file attached to a Jira issue.

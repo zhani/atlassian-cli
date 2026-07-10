@@ -194,6 +194,10 @@ atlassian-cli jira issue search "project = PROJ" -o json
 atlassian-cli jira issue search "project = PROJ" -o markdown
 ```
 
+Jira custom fields (`customfield_*`) returned by the API are preserved: they
+appear flattened in `json` output and as extra rows in the `markdown` detail
+view for `jira issue get`. (The `table` view keeps its fixed summary columns.)
+
 ## HTML to Markdown Conversion
 
 When using `-o markdown`, HTML content (Jira descriptions, Confluence page bodies and comments) is automatically converted to clean GitHub-flavored Markdown. Confluence storage format macros are also handled:

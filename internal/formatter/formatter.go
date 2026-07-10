@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"sort"
 	"strings"
 	"text/tabwriter"
 
@@ -88,6 +89,9 @@ func (f *Formatter) PrintIssue(issue *jira.Issue) error {
 		fmt.Fprintf(f.writer, "| Labels | %s |\n", strings.Join(issue.Fields.Labels, ", "))
 		fmt.Fprintf(f.writer, "| Created | %s |\n", issue.Fields.Created)
 		fmt.Fprintf(f.writer, "| Updated | %s |\n", issue.Fields.Updated)
+		for _, k := range sortedKeys(issue.Fields.Custom) {
+			fmt.Fprintf(f.writer, "| %s | %s |\n", k, customValue(issue.Fields.Custom[k]))
+		}
 		if issue.Fields.Description != "" {
 			fmt.Fprintf(f.writer, "\n### Description\n\n%s\n", htmlconv.Convert(issue.Fields.Description))
 		}
@@ -343,6 +347,33 @@ func (f *Formatter) PrintMessage(msg string) error {
 	default:
 		_, err := fmt.Fprintln(f.writer, msg)
 		return err
+	}
+}
+
+// sortedKeys returns the keys of m in deterministic order.
+func sortedKeys(m map[string]any) []string {
+	keys := make([]string, 0, len(m))
+	for k := range m {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	return keys
+}
+
+// customValue renders a custom field value for a single table cell: strings
+// as-is, everything else as compact JSON.
+func customValue(v any) string {
+	switch val := v.(type) {
+	case nil:
+		return ""
+	case string:
+		return val
+	default:
+		b, err := json.Marshal(val)
+		if err != nil {
+			return fmt.Sprintf("%v", val)
+		}
+		return string(b)
 	}
 }
 
