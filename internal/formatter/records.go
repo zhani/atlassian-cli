@@ -1,18 +1,26 @@
 package formatter
 
 import (
+	"encoding/csv"
 	"fmt"
 	"strings"
 	"text/tabwriter"
 )
 
-// PrintRecords prints rows under headers as an aligned table (or Markdown
-// table), and v as JSON in JSON mode. It serves the simple list outputs
+// PrintRecords prints rows under headers as an aligned table, CSV or
+// Markdown table, and v as JSON in JSON mode. It serves the simple list outputs
 // that need no format-specific layout.
 func (f *Formatter) PrintRecords(v any, headers []string, rows [][]string) error {
 	switch f.format {
 	case JSON:
 		return f.PrintJSON(v)
+	case CSV:
+		w := csv.NewWriter(f.writer)
+		if !f.noHeaders {
+			_ = w.Write(headers)
+		}
+		_ = w.WriteAll(rows) // flushes
+		return w.Error()
 	case Markdown:
 		fmt.Fprintf(f.writer, "| %s |\n|%s\n", strings.Join(headers, " | "), strings.Repeat("---|", len(headers)))
 		for _, r := range rows {

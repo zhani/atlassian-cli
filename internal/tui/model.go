@@ -36,6 +36,13 @@ type Options struct {
 
 	OpenURL func(url string) error  // opens a URL in the browser
 	Copy    func(text string) error // copies text to the clipboard
+
+	// Caption replaces the JQL in the title line.
+	Caption string
+	// Annotations adds a column (titled AnnotationTitle) with a value per
+	// issue key, e.g. how each issue is linked to a feature.
+	AnnotationTitle string
+	Annotations     map[string]string
 }
 
 type mode int
@@ -57,6 +64,7 @@ var (
 // Messages produced by asynchronous commands.
 type (
 	issuesLoadedMsg struct {
+		jql    string // query the result belongs to; stale results are dropped
 		issues []jira.Issue
 		err    error
 	}
@@ -108,10 +116,13 @@ type model struct {
 
 	width, height int
 	quitting      bool
+
+	pendingSelect string        // issue to select once the next result arrives
+	extraHelp     []key.Binding // bindings of an enclosing view (explorer)
 }
 
 func newModel(ctx context.Context, opts Options, render markdownRenderer) model {
-	t := table.New(table.WithColumns(columnsFor(80)), table.WithFocused(true), table.WithKeyMap(tableKeyMap()))
+	t := table.New(table.WithColumns(columnsFor(80, opts.AnnotationTitle)), table.WithFocused(true), table.WithKeyMap(tableKeyMap()))
 	styles := table.DefaultStyles()
 	styles.Header = styles.Header.Bold(true).BorderStyle(lipgloss.NormalBorder()).BorderBottom(true).BorderForeground(lipgloss.Color("8"))
 	styles.Selected = styles.Selected.Foreground(lipgloss.Color("0")).Background(lipgloss.Color("12"))
@@ -161,16 +172,26 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, cmd
 
 	case issuesLoadedMsg:
+		if msg.jql != m.opts.JQL {
+			return m, nil
+		}
 		m.loading = false
 		if msg.err != nil {
 			m.setStatus("Refresh failed: "+msg.err.Error(), true)
 			return m, nil
 		}
 		selected := m.selectedKey()
+		if m.pendingSelect != "" {
+			selected, m.pendingSelect = m.pendingSelect, ""
+		}
 		m.issues = msg.issues
 		m.applyFilter()
 		m.selectKey(selected)
-		if m.status == "" { // keep a message from the action that triggered the reload
+		switch {
+		case m.status != "": // keep a message from the action that triggered the reload
+		case msg.jql == "":
+			m.setStatus("No issues to show", false)
+		default:
 			m.setStatus(fmt.Sprintf("Loaded %d issues", len(m.issues)), false)
 		}
 		return m, nil
@@ -377,10 +398,26 @@ func (m *model) startLoading() tea.Cmd {
 
 func (m model) loadIssues() tea.Cmd {
 	ctx, src, jql, limit := m.ctx, m.opts.Source, m.opts.JQL, m.opts.Limit
+	if jql == "" { // nothing to show (e.g. a feature without linked issues)
+		return func() tea.Msg { return issuesLoadedMsg{jql: jql} }
+	}
 	return func() tea.Msg {
 		issues, err := src.SearchIssuesAll(ctx, jql, nil, limit)
-		return issuesLoadedMsg{issues: issues, err: err}
+		return issuesLoadedMsg{jql: jql, issues: issues, err: err}
 	}
+}
+
+// showQuery switches the browser to another query and starts loading it.
+func (m *model) showQuery(jql, caption string, annotations map[string]string) tea.Cmd {
+	m.opts.JQL, m.opts.Caption, m.opts.Annotations = jql, caption, annotations
+	m.status = ""
+	m.issues = nil
+	m.mode = modeList
+	m.filter.SetValue("")
+	m.applyFilter()
+	m.table.SetCursor(0)
+	m.layout()
+	return tea.Batch(m.startLoading(), m.loadIssues())
 }
 
 func (m model) loadIssue(issueKey string) tea.Cmd {
@@ -460,7 +497,7 @@ func (m *model) selectKey(issueKey string) {
 func (m *model) layout() {
 	footer := lipgloss.Height(m.footerView())
 	bodyHeight := max(3, m.height-1-footer) // 1 line for the title
-	m.table.SetColumns(columnsFor(m.width))
+	m.table.SetColumns(columnsFor(m.width, m.opts.AnnotationTitle))
 	m.table.SetWidth(m.width)
 	m.table.SetHeight(bodyHeight)
 	m.detail.Width = m.width
@@ -513,8 +550,12 @@ func (m model) titleView() string {
 		}
 	}
 	s := styleTitle.Render(" " + title)
-	if m.mode == modeList && m.opts.JQL != "" {
-		s += styleDim.Render("  " + truncate(m.opts.JQL, max(10, m.width-lipgloss.Width(s)-6)))
+	caption := m.opts.Caption
+	if caption == "" {
+		caption = m.opts.JQL
+	}
+	if m.mode == modeList && caption != "" {
+		s += styleDim.Render("  " + truncate(caption, max(10, m.width-lipgloss.Width(s)-6)))
 	}
 	if m.loading {
 		s += " " + m.spinner.View()
@@ -522,22 +563,23 @@ func (m model) titleView() string {
 	return s
 }
 
+// footerView renders the status line (always present, so the layout does
+// not shift when a message appears) and the help.
 func (m model) footerView() string {
-	var lines []string
+	status := ""
 	switch {
 	case m.filtering:
-		lines = append(lines, m.filter.View())
+		status = m.filter.View()
 	case m.status != "":
 		style := styleOK
 		if m.statusErr {
 			style = styleErr
 		}
-		lines = append(lines, style.Render(" "+m.status))
+		status = style.Render(" " + truncate(m.status, max(10, m.width-2)))
 	case m.mode == modeList && m.filter.Value() != "":
-		lines = append(lines, styleDim.Render(" filter: "+m.filter.Value()+"  (esc to clear)"))
+		status = styleDim.Render(" filter: " + m.filter.Value() + "  (esc to clear)")
 	}
-	lines = append(lines, " "+m.help.View(m.helpKeys()))
-	return strings.Join(lines, "\n")
+	return status + "\n " + m.help.View(m.helpKeys())
 }
 
 func (m model) transitionView() string {

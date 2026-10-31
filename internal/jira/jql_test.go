@@ -60,6 +60,11 @@ func TestBuildJQL(t *testing.T) {
 			want: `watcher = currentUser() AND (summary ~ cli OR key = A-1) ORDER BY rank ASC`,
 		},
 		{
+			name: "unresolved",
+			opts: ListOptions{Type: "Epic", Unresolved: true},
+			want: `issuetype = "Epic" AND resolution = Unresolved ORDER BY created DESC`,
+		},
+		{
 			name: "quoting",
 			opts: ListOptions{Status: `Say "hi" \o/`},
 			want: `status = "Say \"hi\" \\o/" ORDER BY created DESC`,

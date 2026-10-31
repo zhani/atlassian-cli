@@ -29,45 +29,27 @@ generated query without running it.`,
 		if err != nil {
 			return err
 		}
-
-		flags := cmd.Flags()
-		opts := jira.ListOptions{}
-		opts.Project, _ = flags.GetString("project")
-		if opts.Project == "" {
-			opts.Project = cfg.DefaultProject
-		}
-		opts.Status, _ = flags.GetString("status")
-		opts.Assignee, _ = flags.GetString("assignee")
-		opts.Reporter, _ = flags.GetString("reporter")
-		opts.Type, _ = flags.GetString("type")
-		opts.Priority, _ = flags.GetString("priority")
-		opts.Labels, _ = flags.GetStringArray("label")
-		opts.Watching, _ = flags.GetBool("watching")
-		opts.Created, _ = flags.GetString("created")
-		opts.Updated, _ = flags.GetString("updated")
-		opts.OrderBy, _ = flags.GetString("order-by")
-		opts.Reverse, _ = flags.GetBool("reverse")
-		opts.JQL, _ = flags.GetString("jql")
-
+		opts := filterOptions(cmd, cfg)
+		opts.Type, _ = cmd.Flags().GetString("type")
 		jql, err := jira.BuildJQL(opts)
 		if err != nil {
 			return err
 		}
-		if show, _ := flags.GetBool("show-jql"); show {
-			_, err := fmt.Fprintln(cmd.OutOrStdout(), jql)
+		if shown, err := showJQL(cmd, jql); shown || err != nil {
 			return err
 		}
 		return showIssues(cmd, jira.NewClient(cfg), jql)
 	},
 }
 
-func init() {
-	f := jiraIssueListCmd.Flags()
+// addFilterFlags registers the issue filter flags shared by issue, feature,
+// epic and sprint listings (all but the issue type, which differs).
+func addFilterFlags(cmd *cobra.Command) {
+	f := cmd.Flags()
 	f.StringP("project", "p", "", "Project key (default: JIRA_DEFAULT_PROJECT)")
 	f.StringP("status", "s", "", "Status")
 	f.StringP("assignee", "a", "", `Assignee ("me", "x" for unassigned, or a user)`)
 	f.StringP("reporter", "r", "", `Reporter ("me", "x", or a user)`)
-	f.StringP("type", "t", "", "Issue type")
 	f.StringP("priority", "y", "", "Priority")
 	f.StringArrayP("label", "l", nil, "Label (repeatable)")
 	f.BoolP("watching", "w", false, "Only issues you are watching")
@@ -77,6 +59,43 @@ func init() {
 	f.Bool("reverse", false, "Sort ascending instead of descending")
 	f.StringP("jql", "q", "", "Additional JQL, ANDed with the filters")
 	f.Bool("show-jql", false, "Print the generated JQL and exit")
+}
+
+// filterOptions reads the flags registered by addFilterFlags. The project
+// defaults to JIRA_DEFAULT_PROJECT.
+func filterOptions(cmd *cobra.Command, cfg *config.AtlassianConfig) jira.ListOptions {
+	flags := cmd.Flags()
+	var o jira.ListOptions
+	o.Project, _ = flags.GetString("project")
+	if o.Project == "" {
+		o.Project = cfg.DefaultProject
+	}
+	o.Status, _ = flags.GetString("status")
+	o.Assignee, _ = flags.GetString("assignee")
+	o.Reporter, _ = flags.GetString("reporter")
+	o.Priority, _ = flags.GetString("priority")
+	o.Labels, _ = flags.GetStringArray("label")
+	o.Watching, _ = flags.GetBool("watching")
+	o.Created, _ = flags.GetString("created")
+	o.Updated, _ = flags.GetString("updated")
+	o.OrderBy, _ = flags.GetString("order-by")
+	o.Reverse, _ = flags.GetBool("reverse")
+	o.JQL, _ = flags.GetString("jql")
+	return o
+}
+
+// showJQL prints jql and reports true when --show-jql was given.
+func showJQL(cmd *cobra.Command, jql string) (bool, error) {
+	if show, _ := cmd.Flags().GetBool("show-jql"); !show {
+		return false, nil
+	}
+	_, err := fmt.Fprintln(cmd.OutOrStdout(), jql)
+	return true, err
+}
+
+func init() {
+	addFilterFlags(jiraIssueListCmd)
+	jiraIssueListCmd.Flags().StringP("type", "t", "", "Issue type")
 	addIssueListFlags(jiraIssueListCmd)
 	jiraIssueCmd.AddCommand(jiraIssueListCmd)
 }

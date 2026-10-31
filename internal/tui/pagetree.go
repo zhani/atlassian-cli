@@ -1,0 +1,496 @@
+package tui
+
+import (
+	"context"
+	"fmt"
+	"strings"
+
+	"github.com/charmbracelet/bubbles/help"
+	"github.com/charmbracelet/bubbles/key"
+	"github.com/charmbracelet/bubbles/spinner"
+	"github.com/charmbracelet/bubbles/viewport"
+	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
+	"github.com/putcho01/atlassian-cli/internal/confluence"
+	"github.com/putcho01/atlassian-cli/internal/htmlconv"
+)
+
+// PageSource is the subset of the Confluence client the page browser needs.
+// *confluence.Client implements it.
+type PageSource interface {
+	ListSpaces(ctx context.Context, limit int) ([]confluence.Space, error)
+	RootPages(ctx context.Context, spaceKey string, limit int) ([]confluence.Page, error)
+	GetChildren(ctx context.Context, pageID string, limit int) ([]confluence.Page, error)
+	GetPage(ctx context.Context, id string, expand []string) (*confluence.Page, error)
+	WebURL(p *confluence.Page) string
+}
+
+// TreeOptions configures the Confluence page browser.
+type TreeOptions struct {
+	Source PageSource
+	Space  string // start in this space; "" lists all spaces
+
+	OpenURL func(url string) error
+	Copy    func(text string) error
+}
+
+// treeLimit caps how many children are listed per node.
+const treeLimit = 500
+
+type treeNode struct {
+	id, title, url string
+	isSpace        bool
+	depth          int
+	parent         *treeNode
+	children       []*treeNode
+	expanded       bool
+	loaded         bool
+}
+
+type (
+	childrenLoadedMsg struct {
+		node   *treeNode // nil for the roots
+		spaces []confluence.Space
+		pages  []confluence.Page
+		err    error
+	}
+	pageContentMsg struct {
+		id   string
+		page *confluence.Page
+		err  error
+	}
+)
+
+var treeKeys = struct {
+	expand, collapse, focus, refresh key.Binding
+}{
+	expand:   key.NewBinding(key.WithKeys("enter", "l", "right"), key.WithHelp("enter/l", "expand")),
+	collapse: key.NewBinding(key.WithKeys("h", "left", "backspace"), key.WithHelp("h", "collapse")),
+	focus:    key.NewBinding(key.WithKeys("tab", "w"), key.WithHelp("tab", "switch pane")),
+	refresh:  key.NewBinding(key.WithKeys("ctrl+r", "f5"), key.WithHelp("ctrl+r", "reload page")),
+}
+
+type treeModel struct {
+	ctx    context.Context
+	opts   TreeOptions
+	render markdownRenderer
+
+	roots   []*treeNode
+	cursor  int
+	offset  int
+	content viewport.Model
+	pages   map[string]*confluence.Page // loaded page content by ID
+	shownID string                      // page in the content pane
+
+	focusContent bool
+	loading      bool
+	spinner      spinner.Model
+	help         help.Model
+	status       string
+	statusErr    bool
+
+	width, height int
+	quitting      bool
+	initCmd       tea.Cmd
+}
+
+func newTree(ctx context.Context, opts TreeOptions, render markdownRenderer) treeModel {
+	vp := viewport.New(0, 0)
+	vp.KeyMap = viewportKeyMap()
+	m := treeModel{
+		ctx: ctx, opts: opts, render: render,
+		content: vp,
+		pages:   map[string]*confluence.Page{},
+		spinner: spinner.New(spinner.WithSpinner(spinner.Dot)),
+		help:    help.New(),
+		width:   100, height: 24,
+	}
+	m.layout()
+	m.loading = true
+	m.initCmd = tea.Batch(m.spinner.Tick, m.loadChildren(nil))
+	return m
+}
+
+func (m treeModel) Init() tea.Cmd { return m.initCmd }
+
+// --- commands ---
+
+func (m treeModel) loadChildren(n *treeNode) tea.Cmd {
+	ctx, src, space := m.ctx, m.opts.Source, m.opts.Space
+	return func() tea.Msg {
+		switch {
+		case n == nil && space == "":
+			spaces, err := src.ListSpaces(ctx, treeLimit)
+			return childrenLoadedMsg{spaces: spaces, err: err}
+		case n == nil:
+			pages, err := src.RootPages(ctx, space, treeLimit)
+			return childrenLoadedMsg{pages: pages, err: err}
+		case n.isSpace:
+			pages, err := src.RootPages(ctx, n.id, treeLimit)
+			return childrenLoadedMsg{node: n, pages: pages, err: err}
+		default:
+			pages, err := src.GetChildren(ctx, n.id, treeLimit)
+			return childrenLoadedMsg{node: n, pages: pages, err: err}
+		}
+	}
+}
+
+func (m treeModel) loadPage(id string) tea.Cmd {
+	ctx, src := m.ctx, m.opts.Source
+	return func() tea.Msg {
+		p, err := src.GetPage(ctx, id, []string{"body.storage", "version", "space"})
+		return pageContentMsg{id: id, page: p, err: err}
+	}
+}
+
+// --- update ---
+
+func (m treeModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	switch msg := msg.(type) {
+	case tea.WindowSizeMsg:
+		m.width, m.height = msg.Width, msg.Height
+		m.layout()
+		m.showContent()
+		return m, nil
+
+	case spinner.TickMsg:
+		if !m.loading {
+			return m, nil
+		}
+		var cmd tea.Cmd
+		m.spinner, cmd = m.spinner.Update(msg)
+		return m, cmd
+
+	case childrenLoadedMsg:
+		m.loading = false
+		if msg.err != nil {
+			m.setStatus(msg.err.Error(), true)
+			return m, nil
+		}
+		depth, parent := 0, msg.node
+		if parent != nil {
+			depth = parent.depth + 1
+		}
+		var nodes []*treeNode
+		for _, s := range msg.spaces {
+			nodes = append(nodes, &treeNode{id: s.Key, title: s.Name, isSpace: true, depth: depth, parent: parent})
+		}
+		for i := range msg.pages {
+			p := &msg.pages[i]
+			nodes = append(nodes, &treeNode{id: p.ID, title: p.Title, url: m.opts.Source.WebURL(p), depth: depth, parent: parent})
+		}
+		if parent == nil {
+			m.roots = nodes
+			return m, m.selectionChanged()
+		}
+		parent.children, parent.loaded, parent.expanded = nodes, true, true
+		if len(nodes) == 0 {
+			m.setStatus(parent.title+" has no child pages", false)
+		}
+		return m, nil
+
+	case pageContentMsg:
+		m.loading = false
+		if msg.err != nil {
+			m.setStatus(msg.err.Error(), true)
+			return m, nil
+		}
+		m.pages[msg.id] = msg.page
+		if m.shownID == msg.id {
+			m.showContent()
+		}
+		return m, nil
+
+	case tea.KeyMsg:
+		return m.handleKey(msg)
+	}
+	return m, nil
+}
+
+func (m treeModel) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	if key.Matches(msg, keys.forceQuit) || key.Matches(msg, keys.quit) {
+		m.quitting = true
+		return m, tea.Quit
+	}
+	m.status = ""
+
+	switch {
+	case key.Matches(msg, treeKeys.focus):
+		m.focusContent = !m.focusContent
+		return m, nil
+	case key.Matches(msg, keys.help):
+		m.help.ShowAll = !m.help.ShowAll
+		m.layout()
+		return m, nil
+	case key.Matches(msg, keys.open), key.Matches(msg, keys.copyURL):
+		n := m.selected()
+		if n == nil || n.url == "" {
+			m.setStatus("No link for this entry", true)
+			return m, nil
+		}
+		fn, done := m.opts.OpenURL, "Opened "+n.title
+		if key.Matches(msg, keys.copyURL) {
+			fn, done = m.opts.Copy, "Copied "+n.url
+		}
+		if fn == nil {
+			return m, nil
+		}
+		if err := fn(n.url); err != nil {
+			m.setStatus(err.Error(), true)
+		} else {
+			m.setStatus(done, false)
+		}
+		return m, nil
+	case key.Matches(msg, treeKeys.refresh):
+		if n := m.selected(); n != nil && !n.isSpace {
+			delete(m.pages, n.id)
+			m.showContent()
+			m.loading = true
+			return m, tea.Batch(m.spinner.Tick, m.loadPage(n.id))
+		}
+		return m, nil
+	}
+
+	if m.focusContent {
+		if key.Matches(msg, keys.back) {
+			m.focusContent = false
+			return m, nil
+		}
+		switch {
+		case key.Matches(msg, keys.top):
+			m.content.GotoTop()
+		case key.Matches(msg, keys.bottom):
+			m.content.GotoBottom()
+		default:
+			var cmd tea.Cmd
+			m.content, cmd = m.content.Update(msg)
+			return m, cmd
+		}
+		return m, nil
+	}
+	return m.handleTreeKey(msg)
+}
+
+func (m treeModel) handleTreeKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	visible := m.visible()
+	if len(visible) == 0 {
+		return m, nil
+	}
+	prev := m.cursor
+	switch {
+	case key.Matches(msg, keys.up):
+		m.cursor = max(0, m.cursor-1)
+	case key.Matches(msg, keys.down):
+		m.cursor = min(len(visible)-1, m.cursor+1)
+	case key.Matches(msg, keys.top):
+		m.cursor = 0
+	case key.Matches(msg, keys.bottom):
+		m.cursor = len(visible) - 1
+	case key.Matches(msg, keys.pageUp):
+		m.cursor = max(0, m.cursor-m.treeRows())
+	case key.Matches(msg, keys.pageDown):
+		m.cursor = min(len(visible)-1, m.cursor+m.treeRows())
+	case key.Matches(msg, treeKeys.expand):
+		n := visible[m.cursor]
+		switch {
+		case n.expanded:
+			if len(n.children) > 0 {
+				m.cursor++ // step into the children
+			}
+		case n.loaded:
+			n.expanded = true
+			if len(n.children) == 0 {
+				m.setStatus(n.title+" has no child pages", false)
+			}
+		default:
+			m.loading = true
+			return m, tea.Batch(m.spinner.Tick, m.loadChildren(n))
+		}
+	case key.Matches(msg, treeKeys.collapse):
+		n := visible[m.cursor]
+		if n.expanded {
+			n.expanded = false
+		} else if n.parent != nil {
+			for i, v := range visible {
+				if v == n.parent {
+					m.cursor = i
+				}
+			}
+		}
+	}
+	if m.cursor != prev {
+		m.keepCursorVisible()
+		return m, m.selectionChanged()
+	}
+	return m, nil
+}
+
+// selectionChanged shows the selected page, loading it when needed.
+func (m *treeModel) selectionChanged() tea.Cmd {
+	n := m.selected()
+	if n == nil {
+		return nil
+	}
+	m.shownID = n.id
+	m.content.GotoTop()
+	m.showContent()
+	if n.isSpace {
+		return nil
+	}
+	if _, ok := m.pages[n.id]; ok {
+		return nil
+	}
+	m.loading = true
+	return tea.Batch(m.spinner.Tick, m.loadPage(n.id))
+}
+
+// --- helpers ---
+
+func (m *treeModel) setStatus(s string, isErr bool) { m.status, m.statusErr = s, isErr }
+
+func (m treeModel) visible() []*treeNode {
+	var out []*treeNode
+	var walk func(nodes []*treeNode)
+	walk = func(nodes []*treeNode) {
+		for _, n := range nodes {
+			out = append(out, n)
+			if n.expanded {
+				walk(n.children)
+			}
+		}
+	}
+	walk(m.roots)
+	return out
+}
+
+func (m treeModel) selected() *treeNode {
+	v := m.visible()
+	if m.cursor < 0 || m.cursor >= len(v) {
+		return nil
+	}
+	return v[m.cursor]
+}
+
+func (m treeModel) treeWidth() int { return min(50, max(26, m.width*35/100)) }
+
+func (m treeModel) footerHeight() int { return lipgloss.Height(m.footerView()) }
+
+func (m treeModel) treeRows() int { return max(1, m.height-m.footerHeight()-4) }
+
+func (m *treeModel) keepCursorVisible() {
+	rows := m.treeRows()
+	if m.cursor < m.offset {
+		m.offset = m.cursor
+	}
+	if m.cursor >= m.offset+rows {
+		m.offset = m.cursor - rows + 1
+	}
+}
+
+func (m *treeModel) layout() {
+	m.help.Width = m.width
+	m.content.Width = max(10, m.width-m.treeWidth()-2)
+	m.content.Height = max(3, m.height-m.footerHeight()-2)
+}
+
+func (m *treeModel) showContent() {
+	n := m.selected()
+	switch {
+	case n == nil:
+		m.content.SetContent(styleDim.Render(" Nothing selected"))
+	case n.isSpace:
+		m.content.SetContent(m.render(fmt.Sprintf("# %s\n\nSpace **%s**. Press enter to list its pages.", n.title, n.id), m.content.Width-2))
+	default:
+		p, ok := m.pages[n.id]
+		if !ok {
+			m.content.SetContent(styleDim.Render(" Loading " + n.title + "…"))
+			return
+		}
+		body := ""
+		if p.Body.Storage != nil {
+			body = htmlconv.Convert(p.Body.Storage.Value)
+		}
+		header := fmt.Sprintf("# %s\n\n_Version %d · %s_\n\n", p.Title, p.Version.Number, p.Version.When)
+		m.content.SetContent(m.render(header+body, m.content.Width-2))
+	}
+}
+
+// --- view ---
+
+func (m treeModel) View() string {
+	if m.quitting {
+		return ""
+	}
+	tree := m.treeView()
+	contentStyle := styleSidebarBlurred
+	if m.focusContent {
+		contentStyle = styleSidebarFocused
+	}
+	content := contentStyle.Render(m.content.View())
+	return lipgloss.JoinVertical(lipgloss.Left, lipgloss.JoinHorizontal(lipgloss.Top, tree, content), m.footerView())
+}
+
+func (m treeModel) treeView() string {
+	w := m.treeWidth() - 2
+	title := "Spaces"
+	if m.opts.Space != "" {
+		title = m.opts.Space
+	}
+	if m.loading {
+		title += " " + m.spinner.View()
+	}
+	var sb strings.Builder
+	sb.WriteString(styleTitle.Render(" "+title) + "\n")
+	visible := m.visible()
+	end := min(len(visible), m.offset+m.treeRows())
+	for i := m.offset; i < end; i++ {
+		n := visible[i]
+		marker := "  "
+		switch {
+		case n.expanded:
+			marker = "▾ "
+		case !n.loaded || len(n.children) > 0:
+			marker = "▸ "
+		}
+		label := truncate(strings.Repeat("  ", n.depth)+marker+n.title, max(5, w-2))
+		if i == m.cursor {
+			sb.WriteString(styleCursor.Render("▶"+label) + "\n")
+		} else {
+			sb.WriteString(" " + label + "\n")
+		}
+	}
+	style := styleSidebarBlurred
+	if !m.focusContent {
+		style = styleSidebarFocused
+	}
+	return style.Render(lipgloss.NewStyle().Width(w).Height(m.content.Height).Render(sb.String()))
+}
+
+func (m treeModel) footerView() string {
+	line := ""
+	if m.status != "" {
+		style := styleOK
+		if m.statusErr {
+			style = styleErr
+		}
+		line = style.Render(" "+m.status) + "\n"
+	}
+	return line + " " + m.help.View(m.helpKeys())
+}
+
+func (m treeModel) helpKeys() helpKeys {
+	short := []key.Binding{treeKeys.expand, treeKeys.collapse, treeKeys.focus, keys.open, keys.copyURL, keys.help, keys.quit}
+	return helpKeys{short: short, full: [][]key.Binding{
+		{keys.up, keys.down, keys.pageUp, keys.pageDown, keys.top, keys.bottom},
+		{treeKeys.expand, treeKeys.collapse, treeKeys.focus, treeKeys.refresh},
+		{keys.open, keys.copyURL, keys.help, keys.quit},
+	}}
+}
+
+// RunPageTree launches the Confluence page browser and blocks until the
+// user quits.
+func RunPageTree(ctx context.Context, opts TreeOptions) error {
+	m := newTree(ctx, opts, glamourRenderer())
+	_, err := tea.NewProgram(m, tea.WithAltScreen(), tea.WithContext(ctx)).Run()
+	return err
+}

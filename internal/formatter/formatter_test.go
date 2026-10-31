@@ -350,3 +350,26 @@ func TestSetIssueColumnsRejectsUnknown(t *testing.T) {
 		t.Errorf("err = %v, want unknown column error", err)
 	}
 }
+
+func TestPrintRecords(t *testing.T) {
+	t.Parallel()
+	rows := [][]string{{"1", "a|b"}, {"2", "c,d"}}
+	tests := []struct {
+		format Format
+		want   string
+	}{
+		{CSV, "ID,Name\n1,a|b\n2,\"c,d\"\n"},
+		{Markdown, "| ID | Name |\n|---|---|\n| 1 | a\\|b |\n| 2 | c,d |\n"},
+		{Table, "ID  NAME\n1   a|b\n2   c,d\n"},
+		{JSON, "\"v\"\n"},
+	}
+	for _, tt := range tests {
+		var buf bytes.Buffer
+		if err := New(tt.format, &buf).PrintRecords("v", []string{"ID", "Name"}, rows); err != nil {
+			t.Fatal(err)
+		}
+		if got := buf.String(); got != tt.want {
+			t.Errorf("%s: got %q, want %q", tt.format, got, tt.want)
+		}
+	}
+}
