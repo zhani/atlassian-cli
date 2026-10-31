@@ -41,7 +41,7 @@ func init() {
 	addBodyFlags(confluencePageUpdateCmd, "body", "Page body (Markdown; storage format with --raw)")
 	addStorageFlag(confluencePageUpdateCmd)
 	confluencePageUpdateCmd.Flags().Int("version", 0, "Version number to set (default: auto-fetch current version + 1)")
-	confluencePageUpdateCmd.Flags().String("message", "", "Version message")
+	confluencePageUpdateCmd.Flags().StringP("message", "m", "", "Version message")
 	_ = confluencePageUpdateCmd.MarkFlagRequired("title")
 	confluencePageCmd.AddCommand(confluencePageUpdateCmd)
 }

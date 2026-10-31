@@ -57,7 +57,7 @@ func TestBuildCreateFields(t *testing.T) {
 				"summary":           "New Feature",
 				"issuetype":         map[string]string{"name": "Story"},
 				"description":       "As a user...",
-				"assignee":          map[string]string{"accountId": "acc123"},
+				"assignee":          map[string]any{"accountId": "acc123"},
 				"priority":          map[string]string{"name": "High"},
 				"labels":            []string{"backend", "v2"},
 				"customfield_10001": "value1",
@@ -128,7 +128,7 @@ func TestBuildCreateFields(t *testing.T) {
 		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			got := buildCreateFields(tt.input)
+			got := buildCreateFields(tt.input, true)
 			if diff := cmp.Diff(tt.expected, got); diff != "" {
 				t.Errorf("buildCreateFields() diff (-want +got):\n%s", diff)
 			}
@@ -521,5 +521,13 @@ func TestGetIssueRendered(t *testing.T) {
 	phrase, linked := got.Fields.IssueLinks[0].Describe()
 	if phrase != "is blocked by" || linked.Key != "TEST-2" {
 		t.Errorf("Describe() = %q, %s; want \"is blocked by\", TEST-2", phrase, linked.Key)
+	}
+}
+
+func TestBuildCreateFieldsServerAssignee(t *testing.T) {
+	t.Parallel()
+	got := buildCreateFields(&CreateIssueInput{ProjectKey: "P", Summary: "s", IssueType: "Task", Assignee: "jdoe"}, false)
+	if diff := cmp.Diff(map[string]any{"name": "jdoe"}, got["assignee"]); diff != "" {
+		t.Errorf("Server/DC assignee diff (-want +got):\n%s", diff)
 	}
 }

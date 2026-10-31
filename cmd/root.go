@@ -14,9 +14,18 @@
 //	│   │   ├── transition – move an issue to a new status
 //	│   │   ├── subtasks   – list subtasks of an issue
 //	│   │   ├── open       – open an issue in the browser
+//	│   │   ├── assign     – assign an issue
+//	│   │   ├── clone      – clone an issue
+//	│   │   ├── link       – link issues (remote, types)
+//	│   │   ├── unlink     – remove links between issues
+//	│   │   ├── worklog    – log time
+//	│   │   ├── development – linked pull requests and branches
+//	│   │   ├── attachment – list, get, download, upload, delete
 //	│   │   └── comment
 //	│   │       ├── list   – list comments on an issue
 //	│   │       └── add    – add a comment to an issue
+//	│   ├── user search    – search users
+//	│   ├── field list     – list fields and their IDs
 //	│   ├── api            – raw REST request
 //	│   └── myself         – show the authenticated user
 //	├── confluence (alias: conf)
@@ -30,7 +39,10 @@
 //	│   │   ├── edit       – edit a page as Markdown in $EDITOR
 //	│   │   ├── list       – list the pages of a space
 //	│   │   ├── children   – list child pages
-//	│   │   └── versions   – show version history
+//	│   │   ├── versions   – show version history
+//	│   │   ├── copy       – copy a page
+//	│   │   └── move       – move a page under another parent
+//	│   ├── attachment     – list, download, upload, delete
 //	│   ├── label
 //	│   │   ├── list       – list labels on a page
 //	│   │   ├── add        – add labels to a page
@@ -53,6 +65,11 @@ var rootCmd = &cobra.Command{
 	Use:   "atlassian-cli",
 	Short: "A CLI and MCP server for Atlassian Jira and Confluence",
 	Long:  "A lightweight, native Go CLI for self-hosted Atlassian Jira and Confluence Server/Data Center instances.",
+	// Runs after flags and arguments were validated: from here on, errors
+	// come from the request, and printing the usage would only hide them.
+	PersistentPreRun: func(cmd *cobra.Command, args []string) {
+		cmd.SilenceUsage = true
+	},
 }
 
 func init() {

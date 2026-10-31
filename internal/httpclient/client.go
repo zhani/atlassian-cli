@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"mime/multipart"
 	"net/http"
 	"net/url"
 	"strings"
@@ -98,6 +99,49 @@ func (c *Client) Raw(ctx context.Context, method, path string, query url.Values,
 	defer resp.Body.Close()
 	data, err := io.ReadAll(resp.Body)
 	return resp.StatusCode, data, err
+}
+
+// Upload POSTs a file as multipart/form-data (field "file") and decodes the
+// JSON response into result. Atlassian requires X-Atlassian-Token: no-check
+// on these requests to pass XSRF protection.
+func (c *Client) Upload(ctx context.Context, path, filename string, r io.Reader, result any) error {
+	pr, pw := io.Pipe()
+	mw := multipart.NewWriter(pw)
+	go func() {
+		part, err := mw.CreateFormFile("file", filename)
+		if err == nil {
+			_, err = io.Copy(part, r)
+		}
+		if err == nil {
+			err = mw.Close()
+		}
+		pw.CloseWithError(err)
+	}()
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.baseURL+path, pr)
+	if err != nil {
+		return fmt.Errorf("create request: %w", err)
+	}
+	req.Header.Set("Authorization", c.authHeader)
+	req.Header.Set("Accept", "application/json")
+	req.Header.Set("Content-Type", mw.FormDataContentType())
+	req.Header.Set("X-Atlassian-Token", "no-check")
+
+	// No overall timeout: a large file may take longer than API calls do.
+	// Cancellation still works through ctx.
+	transfer := &http.Client{Transport: c.httpClient.Transport}
+	resp, err := transfer.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return parseAPIError(resp)
+	}
+	if result == nil {
+		return nil
+	}
+	return json.NewDecoder(resp.Body).Decode(result)
 }
 
 func (c *Client) do(ctx context.Context, method, path string, query url.Values, body any) (*http.Response, error) {

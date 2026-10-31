@@ -32,6 +32,13 @@ atlassian-cli jira issue list -t Bug --created -7d --show-jql     # print the JQ
 atlassian-cli jira issue create --project PROJ --type Bug --summary "Crash on start" --template desc.md
 atlassian-cli jira issue comment add PROJ-1 --body "Fixed in **v1.2**"
 atlassian-cli jira issue transition PROJ-1 "In Progress"
+atlassian-cli jira issue assign PROJ-1 me                          # or x, default, a name/email
+atlassian-cli jira issue link PROJ-1 PROJ-2 "is blocked by"        # reads: PROJ-1 is blocked by PROJ-2
+atlassian-cli jira issue worklog add PROJ-1 "1h 30m" --comment "Review"
+atlassian-cli jira issue get PROJ-1 --fields status,"Story Points" -o json
+atlassian-cli jira field list --custom "points"                    # find custom field IDs
+atlassian-cli jira issue development PROJ-1 -o json                # linked PRs and branches
+atlassian-cli jira issue attachment upload PROJ-1 report.pdf
 atlassian-cli jira issue attachment download PROJ-1 log.txt --file -
 atlassian-cli jira api /rest/api/2/field                           # any REST endpoint
 ```
@@ -45,6 +52,8 @@ atlassian-cli confluence page get 12345 --content-only            # body as Mark
 atlassian-cli confluence page children 12345 -o json
 atlassian-cli confluence page create --space DEV --title "Notes" --template notes.md
 atlassian-cli confluence page update 12345 --title "Notes" --template notes.md -m "Update"
+atlassian-cli confluence page move 12345 678                       # under page 678
+atlassian-cli confluence attachment upload 12345 diagram.png
 atlassian-cli confluence api /rest/api/space -q limit=10
 ```
 

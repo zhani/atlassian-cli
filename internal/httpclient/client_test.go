@@ -161,3 +161,29 @@ func TestRaw(t *testing.T) {
 		t.Errorf("body = %q, want %q", got, want)
 	}
 }
+
+func TestUpload(t *testing.T) {
+	t.Parallel()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("X-Atlassian-Token") != "no-check" {
+			t.Errorf("missing XSRF header")
+		}
+		f, hdr, err := r.FormFile("file")
+		if err != nil {
+			t.Fatalf("FormFile: %v", err)
+		}
+		data, _ := io.ReadAll(f)
+		w.Header().Set("Content-Type", "application/json")
+		fmt.Fprintf(w, `{"name":%q,"content":%q}`, hdr.Filename, data)
+	}))
+	defer srv.Close()
+
+	var got struct{ Name, Content string }
+	err := NewFromConfig(srv.URL, "", "tok").Upload(context.Background(), "/up", "a.txt", strings.NewReader("hello"), &got)
+	if err != nil {
+		t.Fatalf("Upload() error: %v", err)
+	}
+	if got.Name != "a.txt" || got.Content != "hello" {
+		t.Errorf("got %+v", got)
+	}
+}

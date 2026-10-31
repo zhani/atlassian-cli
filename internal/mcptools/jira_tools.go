@@ -63,7 +63,8 @@ type updateIssueInput struct {
 }
 
 type deleteIssueInput struct {
-	Key string `json:"key" jsonschema:"The Jira issue key to delete"`
+	Key            string `json:"key" jsonschema:"The Jira issue key to delete"`
+	DeleteSubtasks bool   `json:"delete_subtasks,omitempty" jsonschema:"Also delete its subtasks (required when it has any)"`
 }
 
 type transitionIssueInput struct {
@@ -200,7 +201,7 @@ func registerJiraTools(s *mcp.Server, enabledGroups []string) {
 			if err != nil {
 				return nil, nil, err
 			}
-			if err := client.DeleteIssue(ctx, input.Key); err != nil {
+			if err := client.DeleteIssue(ctx, input.Key, input.DeleteSubtasks); err != nil {
 				return nil, nil, err
 			}
 			return textResult(map[string]string{"message": "Issue " + input.Key + " deleted"})

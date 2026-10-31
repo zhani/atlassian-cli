@@ -8,6 +8,8 @@ import (
 // User represents a Jira user account.
 type User struct {
 	Self         string `json:"self"`
+	Name         string `json:"name,omitempty"` // username (Server/DC)
+	Key          string `json:"key,omitempty"`  // user key (Server/DC)
 	AccountID    string `json:"accountId"`
 	EmailAddress string `json:"emailAddress"`
 	DisplayName  string `json:"displayName"`

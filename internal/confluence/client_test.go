@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strconv"
+	"strings"
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
@@ -343,5 +344,98 @@ func TestGetVersionsFallsBackToExperimental(t *testing.T) {
 	}
 	if diff := cmp.Diff(versions, got); diff != "" {
 		t.Errorf("GetVersions() diff (-want +got):\n%s", diff)
+	}
+}
+
+// pageServer records write requests and serves one page and its attachments.
+func pageServer(t *testing.T, writes *[]string) *httptest.Server {
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /rest/api/content/10", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		io.WriteString(w, `{"id":"10","title":"Src","space":{"key":"DEV"},"ancestors":[{"id":"1"},{"id":"5"}],
+			"version":{"number":3},"body":{"storage":{"value":"<p>x</p>"}}}`)
+	})
+	mux.HandleFunc("GET /rest/api/content/10/child/attachment", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		io.WriteString(w, `{"results":[{"id":"att1","title":"old.png"}]}`)
+	})
+	record := func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		if strings.HasPrefix(r.Header.Get("Content-Type"), "multipart/") {
+			body = nil
+		}
+		*writes = append(*writes, r.Method+" "+r.URL.Path+" "+string(body))
+		w.Header().Set("Content-Type", "application/json")
+		switch {
+		case strings.HasSuffix(r.URL.Path, "/data"):
+			io.WriteString(w, `{"id":"att1","title":"old.png"}`)
+		case strings.HasSuffix(r.URL.Path, "/child/attachment"):
+			io.WriteString(w, `{"results":[{"id":"att2","title":"new.png"}]}`)
+		default:
+			io.WriteString(w, `{"id":"11","title":"t"}`)
+		}
+	}
+	mux.HandleFunc("POST /", record)
+	mux.HandleFunc("PUT /", record)
+	return httptest.NewServer(mux)
+}
+
+func TestCopyAndMovePage(t *testing.T) {
+	t.Parallel()
+	var writes []string
+	srv := pageServer(t, &writes)
+	defer srv.Close()
+	c := newTestConfluenceClient(srv.URL)
+	ctx := context.Background()
+
+	if _, err := c.CopyPage(ctx, "10", "", "", ""); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := c.CopyPage(ctx, "10", "Other", "OPS", ""); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := c.MovePage(ctx, "10", "7"); err != nil {
+		t.Fatal(err)
+	}
+
+	var bodies []map[string]any
+	for _, w := range writes {
+		var m map[string]any
+		_ = json.Unmarshal([]byte(w[strings.Index(w, " {")+1:]), &m)
+		bodies = append(bodies, m)
+	}
+	// Same space: copied next to the source, under its parent.
+	if bodies[0]["title"] != "Copy of Src" || cmp.Diff([]any{map[string]any{"id": "5"}}, bodies[0]["ancestors"]) != "" {
+		t.Errorf("copy in place = %v", bodies[0])
+	}
+	// Other space: no parent from the source space.
+	if bodies[1]["title"] != "Other" || bodies[1]["ancestors"] != nil {
+		t.Errorf("copy to other space = %v", bodies[1])
+	}
+	if !strings.HasPrefix(writes[2], "PUT /rest/api/content/10 ") ||
+		cmp.Diff([]any{map[string]any{"id": "7"}}, bodies[2]["ancestors"]) != "" ||
+		bodies[2]["version"].(map[string]any)["number"] != 4.0 {
+		t.Errorf("move = %s", writes[2])
+	}
+}
+
+func TestUploadAttachmentNewAndExisting(t *testing.T) {
+	t.Parallel()
+	var writes []string
+	srv := pageServer(t, &writes)
+	defer srv.Close()
+	c := newTestConfluenceClient(srv.URL)
+
+	att, err := c.UploadAttachment(context.Background(), "10", "new.png", strings.NewReader("a"))
+	if err != nil || att.ID != "att2" {
+		t.Fatalf("new upload: %+v %v", att, err)
+	}
+	att, err = c.UploadAttachment(context.Background(), "10", "old.png", strings.NewReader("b"))
+	if err != nil || att.ID != "att1" {
+		t.Fatalf("new version upload: %+v %v", att, err)
+	}
+	want := []string{"POST /rest/api/content/10/child/attachment ", "POST /rest/api/content/10/child/attachment/att1/data "}
+	if diff := cmp.Diff(want, writes); diff != "" {
+		t.Errorf("requests diff (-want +got):\n%s", diff)
 	}
 }

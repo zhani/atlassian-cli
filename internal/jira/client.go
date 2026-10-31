@@ -150,7 +150,7 @@ func (c *Client) SearchIssues(ctx context.Context, jql string, maxResults int) (
 
 func (c *Client) CreateIssue(ctx context.Context, input *CreateIssueInput) (*Issue, error) {
 	body := map[string]any{
-		"fields": buildCreateFields(input),
+		"fields": buildCreateFields(input, c.cloud),
 	}
 
 	var issue Issue
@@ -163,8 +163,14 @@ func (c *Client) UpdateIssue(ctx context.Context, key string, fields map[string]
 	return c.http.Do(ctx, "PUT", "/rest/api/2/issue/"+url.PathEscape(key), nil, body, nil)
 }
 
-func (c *Client) DeleteIssue(ctx context.Context, key string) error {
-	return c.http.Do(ctx, "DELETE", "/rest/api/2/issue/"+url.PathEscape(key), nil, nil, nil)
+// DeleteIssue deletes an issue. Issues with subtasks can only be deleted
+// together with them (deleteSubtasks).
+func (c *Client) DeleteIssue(ctx context.Context, key string, deleteSubtasks bool) error {
+	var q url.Values
+	if deleteSubtasks {
+		q = url.Values{"deleteSubtasks": {"true"}}
+	}
+	return c.http.Do(ctx, "DELETE", "/rest/api/2/issue/"+url.PathEscape(key), q, nil, nil)
 }
 
 func (c *Client) GetTransitions(ctx context.Context, key string) ([]Transition, error) {
@@ -260,7 +266,9 @@ func (c *Client) DownloadAttachment(ctx context.Context, contentURL string) (io.
 	return resp.Body, nil
 }
 
-func buildCreateFields(input *CreateIssueInput) map[string]any {
+// buildCreateFields builds the fields of a create request. Users are
+// referenced by accountId on Cloud and by username on Server/DC.
+func buildCreateFields(input *CreateIssueInput, cloud bool) map[string]any {
 	fields := map[string]any{
 		"project":   map[string]string{"key": input.ProjectKey},
 		"summary":   input.Summary,
@@ -270,7 +278,7 @@ func buildCreateFields(input *CreateIssueInput) map[string]any {
 		fields["description"] = input.Description
 	}
 	if input.Assignee != "" {
-		fields["assignee"] = map[string]string{"accountId": input.Assignee}
+		fields["assignee"] = userRef(input.Assignee, cloud)
 	}
 	if input.Priority != "" {
 		fields["priority"] = map[string]string{"name": input.Priority}
