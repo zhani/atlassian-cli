@@ -28,7 +28,10 @@ var jiraIssueCreateCmd = &cobra.Command{
 
 		summary, _ := cmd.Flags().GetString("summary")
 		issueType, _ := cmd.Flags().GetString("type")
-		description, _ := cmd.Flags().GetString("description")
+		description, err := readBody(cmd, "description", false, ".md")
+		if err != nil {
+			return err
+		}
 		assignee, _ := cmd.Flags().GetString("assignee")
 		priority, _ := cmd.Flags().GetString("priority")
 		labels, _ := cmd.Flags().GetStringSlice("labels")
@@ -37,7 +40,7 @@ var jiraIssueCreateCmd = &cobra.Command{
 			ProjectKey:  project,
 			Summary:     summary,
 			IssueType:   issueType,
-			Description: description,
+			Description: jiraText(cmd, description),
 			Assignee:    assignee,
 			Priority:    priority,
 			Labels:      labels,
@@ -53,7 +56,8 @@ func init() {
 	jiraIssueCreateCmd.Flags().String("project", "", "Project key (falls back to JIRA_DEFAULT_PROJECT)")
 	jiraIssueCreateCmd.Flags().String("summary", "", "Issue summary (required)")
 	jiraIssueCreateCmd.Flags().String("type", "Task", "Issue type")
-	jiraIssueCreateCmd.Flags().String("description", "", "Issue description")
+	addBodyFlags(jiraIssueCreateCmd, "description", "Issue description (Markdown)")
+	addMarkdownFlag(jiraIssueCreateCmd)
 	jiraIssueCreateCmd.Flags().String("assignee", "", "Assignee account ID")
 	jiraIssueCreateCmd.Flags().String("priority", "", "Priority name")
 	jiraIssueCreateCmd.Flags().StringSlice("labels", nil, "Labels")

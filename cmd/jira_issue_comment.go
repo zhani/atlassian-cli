@@ -31,12 +31,15 @@ var jiraIssueCommentAddCmd = &cobra.Command{
 	Short: "Add a comment to a Jira issue",
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		body, _ := cmd.Flags().GetString("body")
 		client, err := newJiraClient()
 		if err != nil {
 			return err
 		}
-		comment, err := client.AddComment(cmd.Context(), args[0], body)
+		body, err := readBody(cmd, "body", true, ".md")
+		if err != nil {
+			return err
+		}
+		comment, err := client.AddComment(cmd.Context(), args[0], jiraText(cmd, body))
 		if err != nil {
 			return err
 		}
@@ -45,8 +48,8 @@ var jiraIssueCommentAddCmd = &cobra.Command{
 }
 
 func init() {
-	jiraIssueCommentAddCmd.Flags().String("body", "", "Comment body (required)")
-	_ = jiraIssueCommentAddCmd.MarkFlagRequired("body")
+	addBodyFlags(jiraIssueCommentAddCmd, "body", "Comment body (Markdown)")
+	addMarkdownFlag(jiraIssueCommentAddCmd)
 	jiraIssueCommentCmd.AddCommand(jiraIssueCommentListCmd)
 	jiraIssueCommentCmd.AddCommand(jiraIssueCommentAddCmd)
 	jiraIssueCmd.AddCommand(jiraIssueCommentCmd)

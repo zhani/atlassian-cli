@@ -23,7 +23,8 @@ func TestParseFormat(t *testing.T) {
 		{"uppercase MD", "MD", Markdown},
 		{"table explicit", "table", Table},
 		{"empty defaults to table", "", Table},
-		{"unknown defaults to table", "csv", Table},
+		{"csv", "CSV", CSV},
+		{"unknown defaults to table", "yaml", Table},
 	}
 
 	for _, tt := range tests {
@@ -281,5 +282,71 @@ func TestPrintIssueCustomFields(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestIssueListColumns(t *testing.T) {
+	t.Parallel()
+	issues := []jira.Issue{
+		{Key: "PROJ-1", Fields: jira.IssueFields{
+			Summary:   "Fix | pipes, and commas",
+			Status:    &jira.Status{Name: "Open"},
+			IssueType: &jira.IssueType{Name: "Bug"},
+			Custom:    map[string]any{"customfield_10010": 5.0},
+		}},
+		{Key: "PROJ-2", Fields: jira.IssueFields{Summary: "Second"}},
+	}
+
+	tests := []struct {
+		name      string
+		format    Format
+		columns   []string
+		noHeaders bool
+		want      string
+	}{
+		{
+			name:    "csv with selected columns",
+			format:  CSV,
+			columns: []string{"key", "Type", "summary", "customfield_10010"},
+			want:    "Key,Type,Summary,customfield_10010\nPROJ-1,Bug,\"Fix | pipes, and commas\",5\nPROJ-2,,Second,\n",
+		},
+		{
+			name:      "table without headers",
+			format:    Table,
+			columns:   []string{"key", "status"},
+			noHeaders: true,
+			want:      "PROJ-1  Open\nPROJ-2  \n",
+		},
+		{
+			name:    "markdown escapes pipes",
+			format:  Markdown,
+			columns: []string{"key", "summary"},
+			want:    "| Key | Summary |\n|---|---|\n| PROJ-1 | Fix \\| pipes, and commas |\n| PROJ-2 | Second |\n",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			var buf bytes.Buffer
+			f := New(tt.format, &buf)
+			if err := f.SetIssueColumns(tt.columns); err != nil {
+				t.Fatalf("SetIssueColumns() error: %v", err)
+			}
+			f.SetNoHeaders(tt.noHeaders)
+			if err := f.PrintIssueList(issues); err != nil {
+				t.Fatalf("PrintIssueList() error: %v", err)
+			}
+			if got := buf.String(); got != tt.want {
+				t.Errorf("output =\n%q\nwant\n%q", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestSetIssueColumnsRejectsUnknown(t *testing.T) {
+	t.Parallel()
+	err := New(Table, &bytes.Buffer{}).SetIssueColumns([]string{"key", "bogus"})
+	if err == nil || !strings.Contains(err.Error(), "bogus") {
+		t.Errorf("err = %v, want unknown column error", err)
 	}
 }

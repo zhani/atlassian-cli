@@ -6,6 +6,7 @@
 //	├── jira
 //	│   ├── issue
 //	│   │   ├── get        – fetch a single issue by key
+//	│   │   ├── list       – list issues using filter flags
 //	│   │   ├── search     – search issues with JQL
 //	│   │   ├── create     – create a new issue
 //	│   │   ├── update     – update issue fields
@@ -47,7 +48,7 @@ var rootCmd = &cobra.Command{
 }
 
 func init() {
-	rootCmd.PersistentFlags().StringP("output", "o", "table", "Output format: table, json, markdown")
+	rootCmd.PersistentFlags().StringP("output", "o", "table", "Output format: table, json, markdown, csv (csv: issue lists only)")
 }
 
 func Execute() error {

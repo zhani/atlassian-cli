@@ -120,6 +120,19 @@ Used with self-hosted Jira/Confluence Server/DC. Authenticates via Bearer auth u
 
 > If `EMAIL` is set, Basic auth (Cloud) is used; otherwise Bearer auth (Server/DC) is used.
 
+### Shared credentials
+
+On Cloud you can set the credentials once with `ATLASSIAN_*` variables. Product-specific variables (`JIRA_*`, `CONFLUENCE_*`) always take precedence.
+
+| Variable | Description |
+|----------|-------------|
+| `ATLASSIAN_URL` | Site URL. Used as `JIRA_URL`; on `*.atlassian.net` also as `CONFLUENCE_URL` (+ `/wiki`) |
+| `ATLASSIAN_EMAIL` | Account email (only combined with an API token) |
+| `ATLASSIAN_API_TOKEN` | API token (Basic auth) |
+| `ATLASSIAN_PERSONAL_TOKEN` | Personal access token (Bearer auth) |
+
+On Server/DC, Confluence runs on its own host, so `CONFLUENCE_URL` is still required there.
+
 Only the variables for the service you use are required. For example, if you only use Jira, you don't need to set the Confluence variables.
 
 ## Commands
@@ -136,7 +149,10 @@ atlassian-cli jira issue open PROJ-123   # Open issue in browser
 atlassian-cli jira issue search "project = PROJ"       # Search issues via JQL (interactive browser in a terminal)
 atlassian-cli jira issue search "project = PROJ" -i    # Always open the interactive browser
 atlassian-cli jira issue search "project = PROJ" --plain --max-results 200   # Plain table, paginated
+atlassian-cli jira issue list -a me -s~Done                     # List issues with filter flags (see below)
 atlassian-cli jira issue create --project PROJ --summary "New task"  # or omit --project if JIRA_DEFAULT_PROJECT is set
+atlassian-cli jira issue create --summary "Crash" --type Bug --template desc.md   # Description from a Markdown file
+atlassian-cli jira issue create --summary "Crash" -e                              # Write the description in $EDITOR
 atlassian-cli jira issue update PROJ-123 --field summary="Updated summary"
 atlassian-cli jira issue delete PROJ-123
 atlassian-cli jira issue subtasks PROJ-123
@@ -144,7 +160,9 @@ atlassian-cli jira issue transition PROJ-123 "In Progress"
 
 # Comments
 atlassian-cli jira issue comment list PROJ-123
-atlassian-cli jira issue comment add PROJ-123 --body "Looks good to me"
+atlassian-cli jira issue comment add PROJ-123 --body "Looks **good** to me"
+echo "Deployed to staging" | atlassian-cli jira issue comment add PROJ-123     # Body from stdin
+atlassian-cli jira issue comment add PROJ-123                                 # Opens $EDITOR in a terminal
 
 # Attachments
 atlassian-cli jira issue attachment list PROJ-123                          # List attachments on an issue
@@ -153,6 +171,46 @@ atlassian-cli jira issue attachment download PROJ-123 design.pdf         # Downl
 atlassian-cli jira issue attachment download PROJ-123 10123 --file out.pdf  # Download by attachment ID to a path
 atlassian-cli jira issue attachment download PROJ-123 design.pdf --file - # Stream to stdout
 ```
+
+### Listing issues with filters
+
+`jira issue list` builds the JQL for you. The project defaults to `JIRA_DEFAULT_PROJECT`.
+
+| Flag | Filter |
+|------|--------|
+| `-p, --project` | Project key |
+| `-s, --status` | Status |
+| `-a, --assignee` | Assignee: a user, `me`, or `x` (unassigned) |
+| `-r, --reporter` | Reporter: a user, `me`, or `x` |
+| `-t, --type` | Issue type |
+| `-y, --priority` | Priority |
+| `-l, --label` | Label (repeatable) |
+| `-w, --watching` | Issues you watch |
+| `--created`, `--updated` | Since a period: `-7d`, `2w`, `-12h`, `today`, `week`, `month`, `year` |
+| `--order-by`, `--reverse` | Sort field (default `created`, descending) |
+| `-q, --jql` | Extra JQL, ANDed with the filters |
+
+Prefix any value with `~` to negate it. `--show-jql` prints the query without running it.
+
+```bash
+atlassian-cli jira issue list -a me -s~Done                       # My open work
+atlassian-cli jira issue list -t Bug -y High --created week       # High-priority bugs from this week
+atlassian-cli jira issue list -a x -l backend -l~wontfix          # Unassigned backend issues
+atlassian-cli jira issue list -q "summary ~ crash" --show-jql     # Inspect the generated JQL
+```
+
+### Writing descriptions and comments
+
+Issue descriptions and comments are written in **Markdown** and converted to Jira wiki markup (headings, emphasis, code blocks, links, lists, tables, quotes). Pass `--raw` to send Jira wiki markup unchanged.
+
+The text can come from:
+
+- the flag itself (`--description`, `--body`)
+- `--template FILE` (`-` reads stdin)
+- `-e, --editor` to write it in `$VISUAL` / `$EDITOR` (default `vi`)
+- for required text (comment body, Confluence page update): piped stdin, or `$EDITOR` when run in a terminal
+
+An optional description never reads stdin implicitly, so `issue create` inside a `while read` loop does not consume the loop's input.
 
 ### Interactive issue browser
 
@@ -185,6 +243,7 @@ back to the OSC 52 terminal escape sequence otherwise. Set `GLAMOUR_STYLE`
 # Pages
 atlassian-cli confluence page get 12345          # Get page content
 atlassian-cli confluence page create --space PROJ --title "New Page" --body "<p>Hello</p>"
+atlassian-cli confluence page create --space PROJ --title "New Page" --template page.html   # Body from a file (- for stdin)
 atlassian-cli confluence page create --space PROJ --title "Child Page" --parent 12345 --body "<p>Child</p>"
 atlassian-cli confluence page update 12345 --title "Updated Title" --body "<p>New content</p>"           # version auto-detected
 atlassian-cli confluence page update 12345 --title "Updated Title" --body "<p>New content</p>" --version 3  # explicit version
@@ -207,11 +266,14 @@ atlassian-cli confluence attachment download 12345 att456 --file out.png  # Down
 
 ## Output Formats
 
-All commands support three output formats via the `--output` / `-o` flag:
+All commands support three output formats via the `--output` / `-o` flag (issue lists also support `csv`, and `--columns` / `--no-headers` for `table`, `csv` and `markdown`; columns: `key`, `summary`, `status`, `assignee`, `reporter`, `priority`, `type`, `labels`, `created`, `updated`, `project`, `customfield_<id>`):
 
 ```bash
 # Default: human-readable table
 atlassian-cli jira issue search "project = PROJ" -o table
+
+# CSV with chosen columns, no header row (issue lists)
+atlassian-cli jira issue list -a me -o csv --columns key,status,summary --no-headers
 
 # Machine-readable JSON
 atlassian-cli jira issue search "project = PROJ" -o json
