@@ -1,8 +1,6 @@
 package mcptools
 
 import (
-	"regexp"
-
 	"github.com/putcho01/atlassian-cli/internal/confluence"
 	"github.com/putcho01/atlassian-cli/internal/htmlconv"
 	"github.com/putcho01/atlassian-cli/internal/jira"
@@ -101,7 +99,7 @@ func compactIssueFrom(is *jira.Issue) compactIssue {
 	}
 
 	for id, v := range f.Custom {
-		sv := simplifyValue(v)
+		sv := jira.SimplifyValue(v)
 		if sv == nil {
 			continue
 		}
@@ -176,57 +174,6 @@ func compactSearchHitFrom(is jira.Issue) compactSearchHit {
 
 func issueRef(is *jira.Issue) compactIssueRef {
 	return compactIssueRef{Key: is.Key, Summary: is.Fields.Summary, Status: statusName(is.Fields.Status)}
-}
-
-// sprintName extracts the name from Jira Server's legacy sprint strings
-// ("com.atlassian.greenhopper.service.sprint.Sprint@1a2b[id=1,...,name=Sprint 5,...]").
-var sprintName = regexp.MustCompile(`^com\.atlassian\.greenhopper\..*\[.*\bname=([^,\]]*)`)
-
-// simplifyValue reduces a custom field value to something readable: option
-// values, user and object names, plain scalars and lists of those. Values
-// that are empty, or objects without an obvious name, become nil and are
-// left out (they remain available with full output).
-func simplifyValue(v any) any {
-	switch x := v.(type) {
-	case nil:
-		return nil
-	case string:
-		if x == "" {
-			return nil
-		}
-		if m := sprintName.FindStringSubmatch(x); m != nil {
-			return m[1]
-		}
-		return x
-	case float64, bool:
-		return x
-	case map[string]any:
-		for _, k := range []string{"value", "displayName", "name", "key"} {
-			s, ok := x[k].(string)
-			if !ok || s == "" {
-				continue
-			}
-			if child, ok := x["child"].(map[string]any); ok { // cascading select
-				if cv, ok := child["value"].(string); ok && cv != "" {
-					return s + " / " + cv
-				}
-			}
-			return s
-		}
-		return nil
-	case []any:
-		var out []any
-		for _, e := range x {
-			if sv := simplifyValue(e); sv != nil {
-				out = append(out, sv)
-			}
-		}
-		if len(out) == 0 {
-			return nil
-		}
-		return out
-	}
-	return nil
 }
 
 func statusName(s *jira.Status) string {

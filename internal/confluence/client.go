@@ -197,11 +197,105 @@ func (c *Client) UpdatePage(ctx context.Context, id string, input *UpdatePageInp
 		},
 		"body": storageBody(input.Body),
 	}
+	if input.ParentID != "" {
+		body["ancestors"] = []map[string]string{{"id": input.ParentID}}
+	}
 	var page Page
 	if err := c.http.Do(ctx, "PUT", contentPath(id), nil, body, &page); err != nil {
 		return nil, err
 	}
 	return &page, nil
+}
+
+// MovePage moves a page under a new parent in the same space, keeping its
+// title and content.
+func (c *Client) MovePage(ctx context.Context, id, parentID string) (*Page, error) {
+	page, err := c.GetPage(ctx, id, []string{"body.storage", "version"})
+	if err != nil {
+		return nil, err
+	}
+	return c.UpdatePage(ctx, id, &UpdatePageInput{
+		Title:    page.Title,
+		Body:     storageValue(page),
+		Version:  page.Version.Number + 1,
+		ParentID: parentID,
+		Message:  "Moved",
+	})
+}
+
+// CopyPage creates a new page with the content of an existing one. The copy
+// goes to space (default: the source's space) under parentID (default: the
+// source's parent) and is titled title (default: "Copy of <title>").
+// Attachments, labels and child pages are not copied.
+func (c *Client) CopyPage(ctx context.Context, id, title, space, parentID string) (*Page, error) {
+	src, err := c.GetPage(ctx, id, []string{"body.storage", "space", "ancestors"})
+	if err != nil {
+		return nil, err
+	}
+	if title == "" {
+		title = "Copy of " + src.Title
+	}
+	if space == "" && src.Space != nil {
+		space = src.Space.Key
+	}
+	if parentID == "" && len(src.Ancestors) > 0 && (src.Space == nil || space == src.Space.Key) {
+		parentID = src.Ancestors[len(src.Ancestors)-1].ID
+	}
+	return c.CreatePage(ctx, &CreatePageInput{SpaceKey: space, Title: title, Body: storageValue(src), ParentID: parentID})
+}
+
+func storageValue(p *Page) string {
+	if p.Body.Storage == nil {
+		return ""
+	}
+	return p.Body.Storage.Value
+}
+
+// UploadAttachment attaches a file to a page, or adds a new version of the
+// attachment when the page already has one with the same name.
+func (c *Client) UploadAttachment(ctx context.Context, pageID, filename string, r io.Reader) (*Attachment, error) {
+	existing, err := c.GetAttachments(ctx, pageID)
+	if err != nil {
+		return nil, err
+	}
+	path := contentPath(pageID) + "/child/attachment"
+	for _, a := range existing {
+		if a.Title == filename {
+			path += "/" + url.PathEscape(a.ID) + "/data"
+			var att Attachment
+			if err := c.http.Upload(ctx, path, filename, r, &att); err != nil {
+				return nil, err
+			}
+			return &att, nil
+		}
+	}
+	var resp AttachmentResponse
+	if err := c.http.Upload(ctx, path, filename, r, &resp); err != nil {
+		return nil, err
+	}
+	if len(resp.Results) == 0 {
+		return nil, fmt.Errorf("upload of %s returned no attachment", filename)
+	}
+	return &resp.Results[0], nil
+}
+
+// DeleteAttachment deletes an attachment (attachments are content items).
+func (c *Client) DeleteAttachment(ctx context.Context, id string) error {
+	return c.http.Do(ctx, "DELETE", contentPath(id), nil, nil, nil)
+}
+
+// FindAttachment returns the attachment of a page whose ID or title is ref.
+func (c *Client) FindAttachment(ctx context.Context, pageID, ref string) (*Attachment, error) {
+	atts, err := c.GetAttachments(ctx, pageID)
+	if err != nil {
+		return nil, err
+	}
+	for i := range atts {
+		if atts[i].ID == ref || atts[i].Title == ref {
+			return &atts[i], nil
+		}
+	}
+	return nil, fmt.Errorf("no attachment matching %q found on page %s", ref, pageID)
 }
 
 func (c *Client) GetAttachments(ctx context.Context, pageID string) ([]Attachment, error) {

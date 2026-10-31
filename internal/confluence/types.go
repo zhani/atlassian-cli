@@ -1,14 +1,16 @@
 package confluence
 
 type Page struct {
-	ID      string   `json:"id"`
-	Type    string   `json:"type"`
-	Status  string   `json:"status"`
-	Title   string   `json:"title"`
-	Space   *Space   `json:"space,omitempty"`
-	Body    PageBody `json:"body"`
-	Version Version  `json:"version"`
-	Links   Links    `json:"_links"`
+	ID     string `json:"id"`
+	Type   string `json:"type"`
+	Status string `json:"status"`
+	Title  string `json:"title"`
+	Space  *Space `json:"space,omitempty"`
+	// Ancestors lists the parent pages, root first (expand=ancestors).
+	Ancestors []Page   `json:"ancestors,omitempty"`
+	Body      PageBody `json:"body"`
+	Version   Version  `json:"version"`
+	Links     Links    `json:"_links"`
 }
 
 type Space struct {
@@ -124,8 +126,9 @@ type CreatePageInput struct {
 }
 
 type UpdatePageInput struct {
-	Title   string
-	Body    string
-	Version int
-	Message string
+	Title    string
+	Body     string
+	Version  int
+	Message  string
+	ParentID string // moves the page under this parent when set
 }

@@ -66,6 +66,19 @@ func (f *Formatter) SetIssueColumns(names []string) error {
 	return nil
 }
 
+// IsIssueColumn reports whether name is a built-in issue column or a
+// customfield_<id> reference (as opposed to a field display name that the
+// caller still has to resolve).
+func IsIssueColumn(name string) bool {
+	n := strings.ToLower(strings.TrimSpace(name))
+	_, ok := issueColumns[n]
+	return ok || strings.HasPrefix(n, "customfield_")
+}
+
+// SetFieldTitles sets the column titles of custom fields (ID → display
+// name); without one, the field ID is the title.
+func (f *Formatter) SetFieldTitles(titles map[string]string) { f.fieldTitles = titles }
+
 // SetNoHeaders omits the header row from table and CSV output.
 func (f *Formatter) SetNoHeaders(v bool) { f.noHeaders = v }
 
@@ -81,7 +94,11 @@ func (f *Formatter) issueColumns() []issueColumn {
 			continue
 		}
 		field := n
-		cols[i] = issueColumn{field, func(is jira.Issue) string { return customValue(is.Fields.Custom[field]) }}
+		title := field
+		if t := f.fieldTitles[field]; t != "" {
+			title = t
+		}
+		cols[i] = issueColumn{title, func(is jira.Issue) string { return jira.DisplayValue(is.Fields.Custom[field]) }}
 	}
 	return cols
 }

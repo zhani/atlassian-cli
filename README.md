@@ -155,8 +155,27 @@ atlassian-cli jira issue create --summary "Crash" --type Bug --template desc.md 
 atlassian-cli jira issue create --summary "Crash" -e                              # Write the description in $EDITOR
 atlassian-cli jira issue update PROJ-123 --field summary="Updated summary"
 atlassian-cli jira issue delete PROJ-123
+atlassian-cli jira issue get PROJ-123 --fields status,"Story Points"   # Selected fields, by ID or name
 atlassian-cli jira issue subtasks PROJ-123
 atlassian-cli jira issue transition PROJ-123 "In Progress"
+atlassian-cli jira issue assign PROJ-123 me             # me, x (unassign), default, or a user name/email
+atlassian-cli jira issue clone PROJ-123 -s "Same on Android" -H "iOS:Android"   # -H find:replace in summary/description
+atlassian-cli jira issue delete PROJ-123 --cascade      # also delete subtasks
+atlassian-cli jira issue development PROJ-123           # Linked pull requests and branches (alias: dev)
+
+# Links
+atlassian-cli jira issue link PROJ-1 PROJ-2 Blocks              # PROJ-1 blocks PROJ-2
+atlassian-cli jira issue link FEAT-1 PROJ-3 "is implemented by" # type name or either phrase
+atlassian-cli jira issue unlink PROJ-1 PROJ-2 [--type Blocks]
+atlassian-cli jira issue link remote PROJ-1 https://example.com/spec "Spec"
+atlassian-cli jira issue link types
+
+# Time tracking
+atlassian-cli jira issue worklog add PROJ-123 "2h 30m" --comment "Code review"
+
+# Users and fields
+atlassian-cli jira user search jane
+atlassian-cli jira field list --custom "story"           # Field IDs for --field / --fields / --columns
 
 # Comments
 atlassian-cli jira issue comment list PROJ-123
@@ -170,6 +189,8 @@ atlassian-cli jira issue attachment get 10123                             # Show
 atlassian-cli jira issue attachment download PROJ-123 design.pdf         # Download by filename (saved as ./design.pdf)
 atlassian-cli jira issue attachment download PROJ-123 10123 --file out.pdf  # Download by attachment ID to a path
 atlassian-cli jira issue attachment download PROJ-123 design.pdf --file - # Stream to stdout
+atlassian-cli jira issue attachment upload PROJ-123 shot.png log.txt      # Attach files
+atlassian-cli jira issue attachment delete PROJ-123 shot.png              # By filename or ID
 ```
 
 ### Listing issues with filters
@@ -252,6 +273,8 @@ atlassian-cli confluence page edit 12345                      # Edit as Markdown
 atlassian-cli confluence page list --space PROJ               # Pages of a space
 atlassian-cli confluence page children 12345                  # Child pages
 atlassian-cli confluence page versions 12345                  # Version history
+atlassian-cli confluence page copy 12345 --title "New" [--space OPS] [--parent 678]   # Content only
+atlassian-cli confluence page move 12345 678                  # Move under page 678 (same space)
 
 # Search
 atlassian-cli confluence search --text "release notes" --space PROJ
@@ -272,6 +295,8 @@ atlassian-cli confluence restriction remove 12345 --operation update --type user
 atlassian-cli confluence attachment list 12345                            # List attachments on a page
 atlassian-cli confluence attachment download 12345 diagram.png           # Download by title (saved as ./diagram.png)
 atlassian-cli confluence attachment download 12345 att456 --file out.png  # Download by attachment ID to a path
+atlassian-cli confluence attachment upload 12345 diagram.png             # Same name: new version
+atlassian-cli confluence attachment delete 12345 diagram.png             # By title or ID
 ```
 
 ## Output Formats
@@ -360,21 +385,25 @@ atlassian-cli mcp-server --tools confluence_page,confluence_label
 ```
 
 Available tool groups:
-- `jira_user` - User authentication
+- `jira_user` - User authentication, user search
 - `jira_issue` - Get issue, subtasks
 - `jira_search` - Search issues via JQL
-- `jira_create` - Create issues (Markdown description)
-- `jira_update` - Update issues
+- `jira_create` - Create and clone issues (Markdown description)
+- `jira_update` - Update and assign issues
 - `jira_delete` - Delete issues
 - `jira_transition` - Transition issues, get available transitions
 - `jira_comment` - List and add comments (Markdown)
-- `jira_attachment` - List, get, and download issue attachments
+- `jira_link` - Link/unlink issues, add web links, list link types
+- `jira_worklog` - Log time
+- `jira_fields` - List fields and their IDs
+- `jira_development` - Pull requests and branches linked to an issue
+- `jira_attachment` - List, get, download, upload and delete issue attachments
 - `jira_api` - Raw request to any Jira REST endpoint *(opt-in)*
-- `confluence_page` - Get, create and update pages (Markdown bodies)
+- `confluence_page` - Get, create, update, copy and move pages (Markdown bodies)
 - `confluence_search` - Search pages (CQL or text/space), list child pages
 - `confluence_label` - Label management
 - `confluence_restriction` - Page restriction management
-- `confluence_attachment` - List and download page attachments
+- `confluence_attachment` - List, download, upload and delete page attachments
 - `confluence_api` - Raw request to any Confluence REST endpoint *(opt-in)*
 
 Without `--tools`, every group except the *opt-in* ones is enabled; opt-in

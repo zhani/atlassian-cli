@@ -16,6 +16,7 @@ func NewServer(version string, enabledGroups []string) *mcp.Server {
 
 	registerJiraTools(server, enabledGroups)
 	registerConfluenceTools(server, enabledGroups)
+	registerOperationTools(server, enabledGroups)
 
 	return server
 }

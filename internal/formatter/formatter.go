@@ -24,10 +24,11 @@ const (
 )
 
 type Formatter struct {
-	format    Format
-	writer    io.Writer
-	columns   []string // issue list columns; see SetIssueColumns
-	noHeaders bool
+	format      Format
+	writer      io.Writer
+	columns     []string          // issue list columns; see SetIssueColumns
+	fieldTitles map[string]string // custom field ID -> display name
+	noHeaders   bool
 }
 
 func New(format Format, w io.Writer) *Formatter {

@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"fmt"
 	"os"
 	"strings"
 
@@ -18,7 +19,7 @@ func addIssueListFlags(cmd *cobra.Command) {
 	cmd.Flags().Int("max-results", 50, "Maximum number of results (fetched across pages)")
 	cmd.Flags().BoolP("interactive", "i", false, "Launch the interactive issue browser")
 	cmd.Flags().Bool("plain", false, "Print plain output even when running in a terminal")
-	cmd.Flags().StringSlice("columns", nil, "Columns for table/csv/markdown output: "+strings.Join(formatter.IssueColumnNames(), ", "))
+	cmd.Flags().StringSlice("columns", nil, "Columns for table/csv/markdown output: "+strings.Join(formatter.IssueColumnNames(), ", ")+", or a field name")
 	cmd.Flags().Bool("no-headers", false, "Omit the header row from table/csv output")
 	cmd.MarkFlagsMutuallyExclusive("interactive", "plain")
 }
@@ -45,6 +46,10 @@ func showIssues(cmd *cobra.Command, client *jira.Client, jql string) error {
 
 	f := newFormatter(cmd)
 	columns, _ := cmd.Flags().GetStringSlice("columns")
+	columns, err = resolveColumns(cmd, client, f, columns)
+	if err != nil {
+		return err
+	}
 	if err := f.SetIssueColumns(columns); err != nil {
 		return err
 	}
@@ -66,4 +71,44 @@ func useInteractive(cmd *cobra.Command) bool {
 		}
 	}
 	return isatty.IsTerminal(os.Stdout.Fd()) && isatty.IsTerminal(os.Stdin.Fd())
+}
+
+// resolveColumns replaces field display names in columns ("Story Points")
+// by their IDs and gives those columns the names as titles. The field list
+// is only fetched when a column is not a built-in name or an ID.
+func resolveColumns(cmd *cobra.Command, client *jira.Client, f *formatter.Formatter, columns []string) ([]string, error) {
+	var names []string
+	for _, c := range columns {
+		if !formatter.IsIssueColumn(c) {
+			names = append(names, c)
+		}
+	}
+	if len(names) == 0 {
+		return columns, nil
+	}
+	fields, err := client.ListFields(cmd.Context())
+	if err != nil {
+		return nil, err
+	}
+	ids, err := jira.ResolveFieldIDs(fields, names)
+	if err != nil {
+		return nil, err
+	}
+	titles := map[string]string{}
+	out := make([]string, 0, len(columns))
+	for _, c := range columns {
+		if formatter.IsIssueColumn(c) {
+			out = append(out, c)
+			continue
+		}
+		id := ids[0]
+		ids = ids[1:]
+		if !formatter.IsIssueColumn(id) {
+			return nil, fmt.Errorf("field %q (%s) cannot be a column: use a built-in column or a custom field", c, id)
+		}
+		titles[id] = strings.TrimSpace(c)
+		out = append(out, id)
+	}
+	f.SetFieldTitles(titles)
+	return out, nil
 }

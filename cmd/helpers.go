@@ -30,3 +30,9 @@ func newFormatter(cmd *cobra.Command) *formatter.Formatter {
 	format, _ := cmd.Flags().GetString("output")
 	return formatter.New(formatter.ParseFormat(format), os.Stdout)
 }
+
+// isJSONOutput reports whether JSON output was requested.
+func isJSONOutput(cmd *cobra.Command) bool {
+	format, _ := cmd.Flags().GetString("output")
+	return formatter.ParseFormat(format) == formatter.JSON
+}

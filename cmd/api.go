@@ -38,7 +38,6 @@ string, @FILE, or @- for stdin.`,
 			if !strings.HasPrefix(path, "/") {
 				return errors.New("path must start with / and be relative to the configured URL")
 			}
-			cmd.SilenceUsage = true // from here on, errors are about the request
 
 			data, _ := cmd.Flags().GetString("data")
 			body, err := requestBody(data)
