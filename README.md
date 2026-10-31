@@ -133,8 +133,9 @@ atlassian-cli jira myself                # Show authenticated user
 # Issues
 atlassian-cli jira issue get PROJ-123    # Get issue (includes description)
 atlassian-cli jira issue open PROJ-123   # Open issue in browser
-atlassian-cli jira issue search "project = PROJ"       # Search issues via JQL
-atlassian-cli jira issue search "project = PROJ" -i    # Interactive TUI picker (↑/↓ navigate, enter detail, o open, q quit)
+atlassian-cli jira issue search "project = PROJ"       # Search issues via JQL (interactive browser in a terminal)
+atlassian-cli jira issue search "project = PROJ" -i    # Always open the interactive browser
+atlassian-cli jira issue search "project = PROJ" --plain --max-results 200   # Plain table, paginated
 atlassian-cli jira issue create --project PROJ --summary "New task"  # or omit --project if JIRA_DEFAULT_PROJECT is set
 atlassian-cli jira issue update PROJ-123 --field summary="Updated summary"
 atlassian-cli jira issue delete PROJ-123
@@ -152,6 +153,31 @@ atlassian-cli jira issue attachment download PROJ-123 design.pdf         # Downl
 atlassian-cli jira issue attachment download PROJ-123 10123 --file out.pdf  # Download by attachment ID to a path
 atlassian-cli jira issue attachment download PROJ-123 design.pdf --file - # Stream to stdout
 ```
+
+### Interactive issue browser
+
+`jira issue search` opens an interactive browser when run in a terminal without
+an explicit `-o`/`--output` (use `--plain` to get the plain table, or `-i` to
+force the browser). Piped output is never interactive.
+
+| Key | Action |
+|-----|--------|
+| `↑`/`↓`, `j`/`k` | Move |
+| `g` / `G` | Top / bottom |
+| `ctrl+f` / `ctrl+b` | Page down / up |
+| `enter` / `v` | View issue (description, links, subtasks, latest comments) |
+| `esc` | Back / clear filter |
+| `/` | Filter the loaded issues |
+| `m` | Transition (move) the issue |
+| `o` | Open in browser |
+| `c` / `ctrl+k` | Copy issue URL / key to the clipboard |
+| `ctrl+r` / `F5` | Refresh |
+| `?` | Toggle full help |
+| `q` | Quit |
+
+Copying uses `pbcopy`, `xclip`, `xsel` or `wl-copy` when available and falls
+back to the OSC 52 terminal escape sequence otherwise. Set `GLAMOUR_STYLE`
+(e.g. `dark`, `light`, `dracula`) to override the issue view's colour theme.
 
 ### Confluence
 

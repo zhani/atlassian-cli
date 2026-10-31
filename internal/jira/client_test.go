@@ -6,6 +6,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -145,7 +146,7 @@ func TestListComments(t *testing.T) {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/rest/api/2/issue/TEST-1/comment", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(commentsResponse{Comments: comments, Total: 2})
+		json.NewEncoder(w).Encode(CommentPage{Comments: comments, Total: 2})
 	})
 	srv := httptest.NewServer(mux)
 	defer srv.Close()
@@ -389,5 +390,136 @@ func TestTransitionIssue(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func keysOf(issues []Issue) []string {
+	keys := make([]string, len(issues))
+	for i, is := range issues {
+		keys[i] = is.Key
+	}
+	return keys
+}
+
+func issuesNamed(keys ...string) []Issue {
+	issues := make([]Issue, len(keys))
+	for i, k := range keys {
+		issues[i] = Issue{Key: k}
+	}
+	return issues
+}
+
+func TestSearchIssuesAllCloud(t *testing.T) {
+	t.Parallel()
+	pages := map[string]searchJQLResponse{
+		"":   {Issues: issuesNamed("A-1", "A-2"), NextPageToken: "p2"},
+		"p2": {Issues: issuesNamed("A-3", "A-4"), NextPageToken: "p3"},
+		"p3": {Issues: issuesNamed("A-5"), IsLast: true},
+	}
+
+	tests := []struct {
+		name  string
+		limit int
+		want  []string
+	}{
+		{name: "all pages", limit: 0, want: []string{"A-1", "A-2", "A-3", "A-4", "A-5"}},
+		{name: "stops at limit", limit: 3, want: []string{"A-1", "A-2", "A-3"}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			mux := http.NewServeMux()
+			mux.HandleFunc("/rest/api/2/search/jql", func(w http.ResponseWriter, r *http.Request) {
+				if got := r.URL.Query().Get("fields"); got != "*navigable" {
+					t.Errorf("fields = %q, want *navigable", got)
+				}
+				w.Header().Set("Content-Type", "application/json")
+				// Deliberately ignore maxResults: the client must still honour the limit.
+				json.NewEncoder(w).Encode(pages[r.URL.Query().Get("nextPageToken")])
+			})
+			srv := httptest.NewServer(mux)
+			defer srv.Close()
+
+			c := newTestJiraClient(srv.URL)
+			c.cloud = true
+			got, err := c.SearchIssuesAll(context.Background(), "project = A", nil, tt.limit)
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if diff := cmp.Diff(tt.want, keysOf(got)); diff != "" {
+				t.Errorf("SearchIssuesAll() diff (-want +got):\n%s", diff)
+			}
+		})
+	}
+}
+
+func TestSearchIssuesAllServer(t *testing.T) {
+	t.Parallel()
+	all := issuesNamed("B-1", "B-2", "B-3", "B-4", "B-5")
+	const serverPageSize = 2 // the server caps pages below what we ask for
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("/rest/api/2/search", func(w http.ResponseWriter, r *http.Request) {
+		if got := r.URL.Query().Get("fields"); got != "key,summary" {
+			t.Errorf("fields = %q, want key,summary", got)
+		}
+		start, _ := strconv.Atoi(r.URL.Query().Get("startAt"))
+		end := min(start+serverPageSize, len(all))
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(SearchResult{StartAt: start, Total: len(all), Issues: all[start:end]})
+	})
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+
+	got, err := newTestJiraClient(srv.URL).SearchIssuesAll(context.Background(), "project = B", []string{"key", "summary"}, 0)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if diff := cmp.Diff(keysOf(all), keysOf(got)); diff != "" {
+		t.Errorf("SearchIssuesAll() diff (-want +got):\n%s", diff)
+	}
+}
+
+func TestGetIssueRendered(t *testing.T) {
+	t.Parallel()
+	mux := http.NewServeMux()
+	mux.HandleFunc("/rest/api/2/issue/TEST-1", func(w http.ResponseWriter, r *http.Request) {
+		if got := r.URL.Query().Get("expand"); got != "renderedFields" {
+			t.Errorf("expand = %q, want renderedFields", got)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		io.WriteString(w, `{
+			"key": "TEST-1",
+			"fields": {
+				"summary": "Rendered",
+				"description": "*bold*",
+				"issuelinks": [{"type": {"name": "Blocks", "inward": "is blocked by", "outward": "blocks"}, "inwardIssue": {"key": "TEST-2"}}],
+				"comment": {"comments": [{"id": "1", "body": "_hi_"}], "total": 1}
+			},
+			"renderedFields": {
+				"description": "<p><b>bold</b></p>",
+				"comment": {"comments": [{"id": "1", "body": "<p><em>hi</em></p>"}], "total": 1}
+			}
+		}`)
+	})
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+
+	got, err := newTestJiraClient(srv.URL).GetIssueRendered(context.Background(), "TEST-1")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if got.RenderedFields == nil || got.RenderedFields.Description != "<p><b>bold</b></p>" {
+		t.Errorf("RenderedFields = %+v, want rendered description", got.RenderedFields)
+	}
+	if got.RenderedFields.Comment == nil || got.RenderedFields.Comment.Comments[0].Body != "<p><em>hi</em></p>" {
+		t.Errorf("rendered comment = %+v", got.RenderedFields.Comment)
+	}
+	if len(got.Fields.IssueLinks) != 1 {
+		t.Fatalf("IssueLinks = %d, want 1", len(got.Fields.IssueLinks))
+	}
+	phrase, linked := got.Fields.IssueLinks[0].Describe()
+	if phrase != "is blocked by" || linked.Key != "TEST-2" {
+		t.Errorf("Describe() = %q, %s; want \"is blocked by\", TEST-2", phrase, linked.Key)
 	}
 }
