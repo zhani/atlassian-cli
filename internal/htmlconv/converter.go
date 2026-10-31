@@ -31,6 +31,13 @@ func walkNode(b *strings.Builder, n *html.Node) {
 	case html.ElementNode:
 		renderElement(b, n)
 		return
+	case html.CommentNode:
+		// The HTML parser reads storage-format CDATA sections (used for code
+		// macro bodies) as comments.
+		if text, ok := cdata(n); ok {
+			b.WriteString(text)
+		}
+		return
 	}
 
 	for c := n.FirstChild; c != nil; c = c.NextSibling {
@@ -48,6 +55,10 @@ func renderElement(b *strings.Builder, n *html.Node) {
 	}
 	if tag == "ac:link" {
 		renderACLink(b, n)
+		return
+	}
+	if tag == "ac:image" {
+		renderACImage(b, n)
 		return
 	}
 	if tag == "ac:emoticon" {
@@ -86,6 +97,10 @@ func renderElement(b *strings.Builder, n *html.Node) {
 		b.WriteString("*")
 		walkChildren(b, n)
 		b.WriteString("*")
+	case "s", "del", "strike":
+		b.WriteString("~~")
+		walkChildren(b, n)
+		b.WriteString("~~")
 	case "code":
 		b.WriteString("`")
 		walkChildren(b, n)
@@ -161,7 +176,7 @@ func renderMacro(b *strings.Builder, n *html.Node) {
 		b.WriteString("> **")
 		b.WriteString(label)
 		b.WriteString(":** ")
-		b.WriteString(text)
+		b.WriteString(quoteContinuation(text))
 		b.WriteString("\n\n")
 
 	case "status":
@@ -190,6 +205,28 @@ func renderACLink(b *strings.Builder, n *html.Node) {
 	} else {
 		walkChildren(b, n)
 	}
+}
+
+// renderACImage renders an ac:image as a Markdown image whose source is the
+// URL (ri:url) or the attachment filename (ri:attachment).
+func renderACImage(b *strings.Builder, n *html.Node) {
+	src := ""
+	for c := n.FirstChild; c != nil; c = c.NextSibling {
+		if c.Type != html.ElementNode {
+			continue
+		}
+		switch c.Data {
+		case "ri:url":
+			src = getAttr(c, "ri:value")
+		case "ri:attachment":
+			src = getAttr(c, "ri:filename")
+		}
+	}
+	b.WriteString("![")
+	b.WriteString(getAttr(n, "ac:alt"))
+	b.WriteString("](")
+	b.WriteString(src)
+	b.WriteString(")")
 }
 
 func renderList(b *strings.Builder, n *html.Node, ordered bool) {
@@ -286,6 +323,36 @@ func walkChildren(b *strings.Builder, n *html.Node) {
 	for c := n.FirstChild; c != nil; c = c.NextSibling {
 		walkNode(b, c)
 	}
+}
+
+// cdata returns the content of a comment node that holds a CDATA section.
+func cdata(n *html.Node) (string, bool) {
+	inner, ok := strings.CutPrefix(n.Data, "[CDATA[")
+	if !ok {
+		return "", false
+	}
+	return strings.TrimSuffix(inner, "]]"), true
+}
+
+// quoteContinuation prefixes every line after the first with "> " so that
+// multi-line text stays inside a block quote. Runs of blank lines collapse
+// into one paragraph break.
+func quoteContinuation(text string) string {
+	var out []string
+	for i, line := range strings.Split(text, "\n") {
+		line = strings.TrimRight(line, " ")
+		switch {
+		case i == 0:
+			out = append(out, line)
+		case line == "":
+			if out[len(out)-1] != ">" {
+				out = append(out, ">")
+			}
+		default:
+			out = append(out, "> "+line)
+		}
+	}
+	return strings.Join(out, "\n")
 }
 
 func getAttr(n *html.Node, key string) string {

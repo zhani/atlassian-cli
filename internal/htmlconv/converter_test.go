@@ -47,6 +47,18 @@ func TestConvert(t *testing.T) {
 			"```go\npackage main\n```",
 		},
 		{
+			"code macro with CDATA body",
+			`<ac:structured-macro ac:name="code"><ac:parameter ac:name="language">go</ac:parameter><ac:plain-text-body><![CDATA[if a < b && c {
+	x()
+}]]></ac:plain-text-body></ac:structured-macro>`,
+			"```go\nif a < b && c {\n\tx()\n}\n```",
+		},
+		{
+			"multi-paragraph note stays quoted",
+			`<ac:structured-macro ac:name="note"><ac:rich-text-body><p>first</p><p>second</p></ac:rich-text-body></ac:structured-macro>`,
+			"> **Note:** first\n>\n> second",
+		},
+		{
 			"info macro",
 			`<ac:structured-macro ac:name="info"><ac:rich-text-body>This is info</ac:rich-text-body></ac:structured-macro>`,
 			"> **Info:** This is info",
