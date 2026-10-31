@@ -1,4 +1,4 @@
-atlassian-cli
+/atlassian-cli
 dist/
 *.exe
 *.dll

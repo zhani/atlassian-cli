@@ -17,12 +17,20 @@
 //	│   │   └── comment
 //	│   │       ├── list   – list comments on an issue
 //	│   │       └── add    – add a comment to an issue
+//	│   ├── api            – raw REST request
 //	│   └── myself         – show the authenticated user
 //	├── confluence (alias: conf)
+//	│   ├── search         – search content (CQL or --text/--space)
+//	│   ├── api            – raw REST request
+//	│   ├── space list     – list spaces
 //	│   ├── page
 //	│   │   ├── get        – fetch a page by ID
-//	│   │   ├── create     – create a new page
-//	│   │   └── update     – update an existing page
+//	│   │   ├── create     – create a new page (Markdown)
+//	│   │   ├── update     – update an existing page (Markdown)
+//	│   │   ├── edit       – edit a page as Markdown in $EDITOR
+//	│   │   ├── list       – list the pages of a space
+//	│   │   ├── children   – list child pages
+//	│   │   └── versions   – show version history
 //	│   ├── label
 //	│   │   ├── list       – list labels on a page
 //	│   │   ├── add        – add labels to a page

@@ -3,8 +3,10 @@ package confluence
 import (
 	"context"
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
@@ -254,5 +256,92 @@ func TestBuildRestrictionBody(t *testing.T) {
 				t.Errorf("buildRestrictionBody() diff (-want +got):\n%s", diff)
 			}
 		})
+	}
+}
+
+// pagedHandler serves items with start/limit pagination and a next link,
+// capping pages at serverMax like real servers do.
+func pagedHandler[T any](t *testing.T, items []T, serverMax int, check func(*http.Request)) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if check != nil {
+			check(r)
+		}
+		start, _ := strconv.Atoi(r.URL.Query().Get("start"))
+		limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
+		end := min(len(items), start+min(limit, serverMax))
+		resp := pageResponse[T]{Results: items[start:end], Start: start, Limit: limit, Size: end - start}
+		if end < len(items) {
+			resp.Links.Next = "/next"
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(resp)
+	}
+}
+
+func pagesNamed(n int) []Page {
+	pages := make([]Page, n)
+	for i := range pages {
+		pages[i] = Page{ID: strconv.Itoa(i + 1), Title: "Page " + strconv.Itoa(i+1)}
+	}
+	return pages
+}
+
+func pageIDs(pages []Page) []string {
+	ids := make([]string, len(pages))
+	for i, p := range pages {
+		ids[i] = p.ID
+	}
+	return ids
+}
+
+func TestSearchCQLPaginates(t *testing.T) {
+	t.Parallel()
+	all := pagesNamed(7)
+	mux := http.NewServeMux()
+	mux.HandleFunc("/rest/api/content/search", pagedHandler(t, all, 3, func(r *http.Request) {
+		if got := r.URL.Query().Get("cql"); got != `space = "DEV"` {
+			t.Errorf("cql = %q", got)
+		}
+	}))
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+	c := newTestConfluenceClient(srv.URL)
+
+	got, err := c.SearchCQL(context.Background(), `space = "DEV"`, 0)
+	if err != nil {
+		t.Fatalf("SearchCQL() error: %v", err)
+	}
+	if diff := cmp.Diff(pageIDs(all), pageIDs(got)); diff != "" {
+		t.Errorf("all results diff (-want +got):\n%s", diff)
+	}
+
+	got, err = c.SearchCQL(context.Background(), `space = "DEV"`, 4)
+	if err != nil {
+		t.Fatalf("SearchCQL() error: %v", err)
+	}
+	if diff := cmp.Diff([]string{"1", "2", "3", "4"}, pageIDs(got)); diff != "" {
+		t.Errorf("limited results diff (-want +got):\n%s", diff)
+	}
+}
+
+func TestGetVersionsFallsBackToExperimental(t *testing.T) {
+	t.Parallel()
+	versions := []Version{{Number: 2, Message: "second"}, {Number: 1}}
+	mux := http.NewServeMux()
+	mux.HandleFunc("/rest/api/content/42/version", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusNotFound)
+		io.WriteString(w, `{"message":"not found"}`)
+	})
+	mux.HandleFunc("/rest/experimental/content/42/version", pagedHandler(t, versions, 50, nil))
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+
+	got, err := newTestConfluenceClient(srv.URL).GetVersions(context.Background(), "42", 0)
+	if err != nil {
+		t.Fatalf("GetVersions() error: %v", err)
+	}
+	if diff := cmp.Diff(versions, got); diff != "" {
+		t.Errorf("GetVersions() diff (-want +got):\n%s", diff)
 	}
 }

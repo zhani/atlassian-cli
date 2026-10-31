@@ -2,9 +2,12 @@ package confluence
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
+	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 
 	"github.com/putcho01/atlassian-cli/internal/config"
@@ -30,6 +33,90 @@ func (c *Client) GetPage(ctx context.Context, id string, expand []string) (*Page
 	var page Page
 	err := c.http.Do(ctx, "GET", contentPath(id), q, nil, &page)
 	return &page, err
+}
+
+// listPageSize is the page size requested from paginated endpoints.
+const listPageSize = 50
+
+// collect follows start/limit pagination of a v1 list endpoint until limit
+// results are gathered (limit <= 0: all) or the results run out.
+func collect[T any](ctx context.Context, c *Client, path string, q url.Values, limit int) ([]T, error) {
+	var all []T
+	for {
+		size := listPageSize
+		if limit > 0 && limit-len(all) < size {
+			size = limit - len(all)
+		}
+		q.Set("start", strconv.Itoa(len(all)))
+		q.Set("limit", strconv.Itoa(size))
+		var resp pageResponse[T]
+		if err := c.http.Do(ctx, "GET", path, q, nil, &resp); err != nil {
+			return nil, err
+		}
+		all = append(all, resp.Results...)
+		if limit > 0 && len(all) >= limit {
+			return all[:limit], nil
+		}
+		if resp.Links.Next == "" || len(resp.Results) == 0 {
+			return all, nil
+		}
+	}
+}
+
+// SearchCQL returns content matching a CQL query.
+func (c *Client) SearchCQL(ctx context.Context, cql string, limit int) ([]Page, error) {
+	q := url.Values{}
+	q.Set("cql", cql)
+	q.Set("expand", "space,version")
+	return collect[Page](ctx, c, "/rest/api/content/search", q, limit)
+}
+
+// GetChildren returns the child pages of a page.
+func (c *Client) GetChildren(ctx context.Context, pageID string, limit int) ([]Page, error) {
+	q := url.Values{}
+	q.Set("expand", "space,version")
+	return collect[Page](ctx, c, contentPath(pageID)+"/child/page", q, limit)
+}
+
+// ListPages returns the pages of a space.
+func (c *Client) ListPages(ctx context.Context, spaceKey string, limit int) ([]Page, error) {
+	q := url.Values{}
+	q.Set("spaceKey", spaceKey)
+	q.Set("type", "page")
+	q.Set("expand", "space,version")
+	return collect[Page](ctx, c, "/rest/api/content", q, limit)
+}
+
+// ListSpaces returns the spaces visible to the user.
+func (c *Client) ListSpaces(ctx context.Context, limit int) ([]Space, error) {
+	return collect[Space](ctx, c, "/rest/api/space", url.Values{}, limit)
+}
+
+// GetVersions returns the version history of a page, newest first. Cloud
+// serves it under /rest/api; Server/DC only under /rest/experimental.
+func (c *Client) GetVersions(ctx context.Context, pageID string, limit int) ([]Version, error) {
+	versions, err := collect[Version](ctx, c, contentPath(pageID)+"/version", url.Values{}, limit)
+	var apiErr *httpclient.APIError
+	if errors.As(err, &apiErr) && apiErr.StatusCode == http.StatusNotFound {
+		return collect[Version](ctx, c, "/rest/experimental/content/"+url.PathEscape(pageID)+"/version", url.Values{}, limit)
+	}
+	return versions, err
+}
+
+// BaseURL returns the Confluence base URL.
+func (c *Client) BaseURL() string { return c.http.BaseURL() }
+
+// Raw performs an arbitrary authenticated REST request; see httpclient.Raw.
+func (c *Client) Raw(ctx context.Context, method, path string, query url.Values, body []byte) (int, []byte, error) {
+	return c.http.Raw(ctx, method, path, query, body)
+}
+
+// WebURL returns the browser URL of a page from its webui link.
+func (c *Client) WebURL(p *Page) string {
+	if p.Links.WebUI == "" {
+		return ""
+	}
+	return c.http.BaseURL() + p.Links.WebUI
 }
 
 func (c *Client) GetLabels(ctx context.Context, pageID string) ([]Label, error) {

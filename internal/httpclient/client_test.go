@@ -1,7 +1,13 @@
 package httpclient
 
 import (
+	"context"
 	"encoding/base64"
+	"fmt"
+	"io"
+	"net/http"
+	"net/http/httptest"
+	"net/url"
 	"strings"
 	"testing"
 )
@@ -125,5 +131,33 @@ func TestAPIError_Error(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestRaw(t *testing.T) {
+	t.Parallel()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		if r.Header.Get("Authorization") != "Bearer tok" {
+			t.Errorf("Authorization = %q", r.Header.Get("Authorization"))
+		}
+		if len(body) > 0 && r.Header.Get("Content-Type") != "application/json" {
+			t.Errorf("Content-Type = %q", r.Header.Get("Content-Type"))
+		}
+		w.WriteHeader(http.StatusTeapot)
+		fmt.Fprintf(w, "%s %s?%s %s", r.Method, r.URL.Path, r.URL.RawQuery, body)
+	}))
+	defer srv.Close()
+
+	c := NewFromConfig(srv.URL, "", "tok")
+	status, body, err := c.Raw(context.Background(), "PUT", "/rest/x", url.Values{"a": {"1"}}, []byte(`{"k":1}`))
+	if err != nil {
+		t.Fatalf("Raw() error: %v", err)
+	}
+	if status != http.StatusTeapot {
+		t.Errorf("status = %d, want 418 (errors are returned, not raised)", status)
+	}
+	if got, want := string(body), `PUT /rest/x?a=1 {"k":1}`; got != want {
+		t.Errorf("body = %q, want %q", got, want)
 	}
 }

@@ -18,7 +18,7 @@ var mcpServerCmd = &cobra.Command{
 }
 
 func init() {
-	mcpServerCmd.Flags().StringSlice("tools", nil, "Tool groups to enable (default: all). Available: "+availableGroups())
+	mcpServerCmd.Flags().StringSlice("tools", nil, "Tool groups to enable (default: all except "+strings.Join(mcptools.OptInGroups(), ", ")+"). Available: "+availableGroups())
 	rootCmd.AddCommand(mcpServerCmd)
 }
 
