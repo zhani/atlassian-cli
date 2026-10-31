@@ -11,6 +11,7 @@ import (
 	"github.com/putcho01/atlassian-cli/internal/config"
 	"github.com/putcho01/atlassian-cli/internal/confluence"
 	"github.com/putcho01/atlassian-cli/internal/htmlconv"
+	"github.com/putcho01/atlassian-cli/internal/mdconv"
 )
 
 // --- Input types ---
@@ -18,6 +19,34 @@ import (
 type getPageInput struct {
 	ID     string `json:"id" jsonschema:"The Confluence page ID"`
 	Expand string `json:"expand,omitempty" jsonschema:"Comma-separated list of properties to expand (default: body.storage,version)"`
+}
+
+type createPageInput struct {
+	SpaceKey   string `json:"space_key" jsonschema:"Space key"`
+	Title      string `json:"title" jsonschema:"Page title"`
+	Body       string `json:"body" jsonschema:"Page content in Markdown (storage-format XHTML when body_format is storage)"`
+	BodyFormat string `json:"body_format,omitempty" jsonschema:"markdown (default) or storage"`
+	ParentID   string `json:"parent_id,omitempty" jsonschema:"Parent page ID"`
+}
+
+type updatePageInput struct {
+	PageID     string `json:"page_id" jsonschema:"The Confluence page ID"`
+	Title      string `json:"title,omitempty" jsonschema:"New title (default: keep the current title)"`
+	Body       string `json:"body" jsonschema:"New page content in Markdown (storage-format XHTML when body_format is storage); replaces the whole page"`
+	BodyFormat string `json:"body_format,omitempty" jsonschema:"markdown (default) or storage"`
+	Message    string `json:"message,omitempty" jsonschema:"Version message"`
+}
+
+type searchContentInput struct {
+	CQL   string `json:"cql,omitempty" jsonschema:"CQL query; alternatively use text and/or space"`
+	Text  string `json:"text,omitempty" jsonschema:"Full-text search terms"`
+	Space string `json:"space,omitempty" jsonschema:"Space key to search in"`
+	Limit int    `json:"limit,omitempty" jsonschema:"Maximum number of results (default 25)"`
+}
+
+type getChildrenInput struct {
+	PageID string `json:"page_id" jsonschema:"The Confluence page ID"`
+	Limit  int    `json:"limit,omitempty" jsonschema:"Maximum number of results (default 100)"`
 }
 
 type listLabelsInput struct {
@@ -76,6 +105,103 @@ func registerConfluenceTools(s *mcp.Server, enabledGroups []string) {
 				page.Body.Storage.Value = htmlconv.Convert(page.Body.Storage.Value)
 			}
 			return textResult(page)
+		})
+
+	maybeAdd(s, enabledGroups, "confluence_create_page", "Create a Confluence page; the body is Markdown (code blocks and > **Note:** quotes become Confluence macros)",
+		func(ctx context.Context, req *mcp.CallToolRequest, input createPageInput) (*mcp.CallToolResult, any, error) {
+			client, err := newConfluenceClient()
+			if err != nil {
+				return nil, nil, err
+			}
+			body, err := storageBody(input.Body, input.BodyFormat)
+			if err != nil {
+				return nil, nil, err
+			}
+			page, err := client.CreatePage(ctx, &confluence.CreatePageInput{
+				SpaceKey: input.SpaceKey,
+				Title:    input.Title,
+				Body:     body,
+				ParentID: input.ParentID,
+			})
+			if err != nil {
+				return nil, nil, err
+			}
+			return textResult(map[string]any{"message": "Page created", "id": page.ID, "version": page.Version.Number, "url": client.WebURL(page)})
+		})
+
+	maybeAdd(s, enabledGroups, "confluence_update_page", "Replace the content of a Confluence page; the body is Markdown. Fetch the page first: content not in body is removed",
+		func(ctx context.Context, req *mcp.CallToolRequest, input updatePageInput) (*mcp.CallToolResult, any, error) {
+			client, err := newConfluenceClient()
+			if err != nil {
+				return nil, nil, err
+			}
+			body, err := storageBody(input.Body, input.BodyFormat)
+			if err != nil {
+				return nil, nil, err
+			}
+			title := input.Title
+			if title == "" {
+				current, err := client.GetPage(ctx, input.PageID, []string{"version"})
+				if err != nil {
+					return nil, nil, err
+				}
+				title = current.Title
+			}
+			page, err := client.UpdatePage(ctx, input.PageID, &confluence.UpdatePageInput{Title: title, Body: body, Message: input.Message})
+			if err != nil {
+				return nil, nil, err
+			}
+			return textResult(map[string]any{"message": "Page updated", "id": page.ID, "version": page.Version.Number, "url": client.WebURL(page)})
+		})
+
+	maybeAdd(s, enabledGroups, "confluence_search", "Search Confluence pages by CQL, or by text and/or space",
+		func(ctx context.Context, req *mcp.CallToolRequest, input searchContentInput) (*mcp.CallToolResult, any, error) {
+			cql := input.CQL
+			if cql == "" {
+				if input.Text == "" && input.Space == "" {
+					return nil, nil, fmt.Errorf("cql, text or space is required")
+				}
+				cql = confluence.BuildCQL(confluence.SearchOptions{Text: input.Text, Space: input.Space})
+			}
+			limit := input.Limit
+			if limit <= 0 {
+				limit = 25
+			}
+			client, err := newConfluenceClient()
+			if err != nil {
+				return nil, nil, err
+			}
+			pages, err := client.SearchCQL(ctx, cql, limit)
+			if err != nil {
+				return nil, nil, err
+			}
+			return textResult(compactPages(client, pages))
+		})
+
+	maybeAdd(s, enabledGroups, "confluence_get_children", "List the child pages of a Confluence page",
+		func(ctx context.Context, req *mcp.CallToolRequest, input getChildrenInput) (*mcp.CallToolResult, any, error) {
+			limit := input.Limit
+			if limit <= 0 {
+				limit = 100
+			}
+			client, err := newConfluenceClient()
+			if err != nil {
+				return nil, nil, err
+			}
+			pages, err := client.GetChildren(ctx, input.PageID, limit)
+			if err != nil {
+				return nil, nil, err
+			}
+			return textResult(compactPages(client, pages))
+		})
+
+	maybeAdd(s, enabledGroups, "confluence_api_request", "Send an authenticated request to any Confluence REST endpoint (escape hatch for operations without a dedicated tool)",
+		func(ctx context.Context, req *mcp.CallToolRequest, input apiRequestInput) (*mcp.CallToolResult, any, error) {
+			client, err := newConfluenceClient()
+			if err != nil {
+				return nil, nil, err
+			}
+			return apiRequest(ctx, client, input)
 		})
 
 	maybeAdd(s, enabledGroups, "confluence_list_labels", "List labels on a Confluence page",
@@ -228,4 +354,16 @@ func newConfluenceClient() (*confluence.Client, error) {
 		return nil, err
 	}
 	return confluence.NewClient(cfg), nil
+}
+
+// storageBody converts a page body to storage format according to format
+// ("markdown" by default, or "storage" for no conversion).
+func storageBody(body, format string) (string, error) {
+	switch strings.ToLower(format) {
+	case "", "markdown", "md":
+		return mdconv.ToStorage(body)
+	case "storage", "xhtml":
+		return body, nil
+	}
+	return "", fmt.Errorf("unknown body_format %q (use markdown or storage)", format)
 }

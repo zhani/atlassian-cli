@@ -5,12 +5,14 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"net/url"
 	"os"
+	"strings"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/putcho01/atlassian-cli/internal/config"
-	"github.com/putcho01/atlassian-cli/internal/htmlconv"
 	"github.com/putcho01/atlassian-cli/internal/jira"
+	"github.com/putcho01/atlassian-cli/internal/mdconv"
 )
 
 // --- Input types ---
@@ -18,21 +20,41 @@ import (
 type emptyInput struct{}
 
 type getIssueInput struct {
-	Key string `json:"key" jsonschema:"The Jira issue key (e.g. PROJ-123)"`
+	Key  string `json:"key" jsonschema:"The Jira issue key (e.g. PROJ-123)"`
+	Full bool   `json:"full,omitempty" jsonschema:"Return the raw API issue with every field instead of the compact view"`
 }
 
 type searchIssuesInput struct {
 	JQL        string `json:"jql" jsonschema:"JQL query string"`
 	MaxResults int    `json:"max_results,omitempty" jsonschema:"Maximum number of results (default 50)"`
+	Full       bool   `json:"full,omitempty" jsonschema:"Return raw API issues with all navigable fields instead of compact rows"`
 }
 
 type createIssueInput struct {
 	ProjectKey  string `json:"project_key" jsonschema:"Project key (e.g. PROJ)"`
 	Summary     string `json:"summary" jsonschema:"Issue summary"`
 	IssueType   string `json:"issue_type,omitempty" jsonschema:"Issue type (default Task)"`
-	Description string `json:"description,omitempty" jsonschema:"Issue description"`
+	Description string `json:"description,omitempty" jsonschema:"Issue description in Markdown (Jira wiki markup when raw is true)"`
+	Raw         bool   `json:"raw,omitempty" jsonschema:"Send the description as Jira wiki markup without converting from Markdown"`
 	Assignee    string `json:"assignee,omitempty" jsonschema:"Assignee username"`
 	Priority    string `json:"priority,omitempty" jsonschema:"Priority name"`
+}
+
+type listCommentsInput struct {
+	Key string `json:"key" jsonschema:"The Jira issue key"`
+}
+
+type addCommentInput struct {
+	Key  string `json:"key" jsonschema:"The Jira issue key"`
+	Body string `json:"body" jsonschema:"Comment text in Markdown (Jira wiki markup when raw is true)"`
+	Raw  bool   `json:"raw,omitempty" jsonschema:"Send the body as Jira wiki markup without converting from Markdown"`
+}
+
+type apiRequestInput struct {
+	Method string            `json:"method,omitempty" jsonschema:"HTTP method (default GET)"`
+	Path   string            `json:"path" jsonschema:"REST path relative to the configured base URL, starting with / (e.g. /rest/api/2/field)"`
+	Query  map[string]string `json:"query,omitempty" jsonschema:"Query parameters"`
+	Body   string            `json:"body,omitempty" jsonschema:"JSON request body"`
 }
 
 type updateIssueInput struct {
@@ -87,18 +109,24 @@ func registerJiraTools(s *mcp.Server, enabledGroups []string) {
 			return textResult(user)
 		})
 
-	maybeAdd(s, enabledGroups, "jira_get_issue", "Get a Jira issue by key, including summary, description, status, assignee, and other fields",
+	maybeAdd(s, enabledGroups, "jira_get_issue", "Get a Jira issue by key: summary, status, people, description (Markdown), custom fields by name, links, subtasks, attachments and latest comments",
 		func(ctx context.Context, req *mcp.CallToolRequest, input getIssueInput) (*mcp.CallToolResult, any, error) {
 			client, err := newJiraClient()
 			if err != nil {
 				return nil, nil, err
 			}
-			issue, err := client.GetIssue(ctx, input.Key)
+			if input.Full {
+				issue, err := client.GetIssue(ctx, input.Key)
+				if err != nil {
+					return nil, nil, err
+				}
+				return textResult(issue)
+			}
+			issue, err := client.GetIssueExpanded(ctx, input.Key, "renderedFields", "names")
 			if err != nil {
 				return nil, nil, err
 			}
-			issue.Fields.Description = htmlconv.Convert(issue.Fields.Description)
-			return textResult(issue)
+			return textResult(compactIssueFrom(issue))
 		})
 
 	maybeAdd(s, enabledGroups, "jira_search_issues", "Search Jira issues using JQL query language",
@@ -107,14 +135,26 @@ func registerJiraTools(s *mcp.Server, enabledGroups []string) {
 			if err != nil {
 				return nil, nil, err
 			}
-			result, err := client.SearchIssues(ctx, input.JQL, input.MaxResults)
+			limit := input.MaxResults
+			if limit <= 0 {
+				limit = 50
+			}
+			if input.Full {
+				issues, err := client.SearchIssuesAll(ctx, input.JQL, nil, limit)
+				if err != nil {
+					return nil, nil, err
+				}
+				return textResult(issues)
+			}
+			issues, err := client.SearchIssuesAll(ctx, input.JQL, compactSearchFields, limit)
 			if err != nil {
 				return nil, nil, err
 			}
-			for i := range result.Issues {
-				result.Issues[i].Fields.Description = htmlconv.Convert(result.Issues[i].Fields.Description)
+			hits := make([]compactSearchHit, len(issues))
+			for i, is := range issues {
+				hits[i] = compactSearchHitFrom(is)
 			}
-			return textResult(result)
+			return textResult(hits)
 		})
 
 	maybeAdd(s, enabledGroups, "jira_create_issue", "Create a new Jira issue",
@@ -131,7 +171,7 @@ func registerJiraTools(s *mcp.Server, enabledGroups []string) {
 				ProjectKey:  input.ProjectKey,
 				Summary:     input.Summary,
 				IssueType:   issueType,
-				Description: input.Description,
+				Description: jiraMarkup(input.Description, input.Raw),
 				Assignee:    input.Assignee,
 				Priority:    input.Priority,
 			}
@@ -202,6 +242,45 @@ func registerJiraTools(s *mcp.Server, enabledGroups []string) {
 				return nil, nil, err
 			}
 			return textResult(subtasks)
+		})
+
+	maybeAdd(s, enabledGroups, "jira_list_comments", "List the comments on a Jira issue (bodies as Markdown)",
+		func(ctx context.Context, req *mcp.CallToolRequest, input listCommentsInput) (*mcp.CallToolResult, any, error) {
+			client, err := newJiraClient()
+			if err != nil {
+				return nil, nil, err
+			}
+			comments, err := client.ListComments(ctx, input.Key)
+			if err != nil {
+				return nil, nil, err
+			}
+			out := make([]compactComment, len(comments))
+			for i, c := range comments {
+				out[i] = compactCommentFrom(c)
+			}
+			return textResult(out)
+		})
+
+	maybeAdd(s, enabledGroups, "jira_add_comment", "Add a comment to a Jira issue; the body is Markdown",
+		func(ctx context.Context, req *mcp.CallToolRequest, input addCommentInput) (*mcp.CallToolResult, any, error) {
+			client, err := newJiraClient()
+			if err != nil {
+				return nil, nil, err
+			}
+			comment, err := client.AddComment(ctx, input.Key, jiraMarkup(input.Body, input.Raw))
+			if err != nil {
+				return nil, nil, err
+			}
+			return textResult(map[string]string{"message": "Comment added to " + input.Key, "id": comment.ID})
+		})
+
+	maybeAdd(s, enabledGroups, "jira_api_request", "Send an authenticated request to any Jira REST endpoint (escape hatch for operations without a dedicated tool)",
+		func(ctx context.Context, req *mcp.CallToolRequest, input apiRequestInput) (*mcp.CallToolResult, any, error) {
+			client, err := newJiraClient()
+			if err != nil {
+				return nil, nil, err
+			}
+			return apiRequest(ctx, client, input)
 		})
 
 	maybeAdd(s, enabledGroups, "jira_list_attachments", "List attachments on a Jira issue",
@@ -279,6 +358,44 @@ func newJiraClient() (*jira.Client, error) {
 		return nil, err
 	}
 	return jira.NewClient(cfg), nil
+}
+
+// jiraMarkup converts Markdown to Jira wiki markup unless raw is set.
+func jiraMarkup(text string, raw bool) string {
+	if raw || strings.TrimSpace(text) == "" {
+		return text
+	}
+	return mdconv.ToJiraWiki(text)
+}
+
+// rawRequester is implemented by the Jira and Confluence clients.
+type rawRequester interface {
+	Raw(ctx context.Context, method, path string, query url.Values, body []byte) (int, []byte, error)
+}
+
+// apiRequest performs a raw REST request and returns the status with the
+// response body (decoded when it is JSON).
+func apiRequest(ctx context.Context, c rawRequester, input apiRequestInput) (*mcp.CallToolResult, any, error) {
+	if !strings.HasPrefix(input.Path, "/") {
+		return nil, nil, fmt.Errorf("path must start with / and be relative to the configured URL")
+	}
+	method := strings.ToUpper(input.Method)
+	if method == "" {
+		method = "GET"
+	}
+	query := url.Values{}
+	for k, v := range input.Query {
+		query.Set(k, v)
+	}
+	status, body, err := c.Raw(ctx, method, input.Path, query, []byte(input.Body))
+	if err != nil {
+		return nil, nil, err
+	}
+	var decoded any
+	if json.Unmarshal(body, &decoded) != nil {
+		decoded = string(body)
+	}
+	return textResult(map[string]any{"status": status, "body": decoded})
 }
 
 func textResult(v any) (*mcp.CallToolResult, any, error) {

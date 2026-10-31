@@ -1,5 +1,7 @@
 package mcptools
 
+import "sort"
+
 var toolGroups = map[string][]string{
 	"jira_user":              {"jira_get_myself"},
 	"jira_issue":             {"jira_get_issue", "jira_get_subtasks"},
@@ -8,23 +10,37 @@ var toolGroups = map[string][]string{
 	"jira_update":            {"jira_update_issue"},
 	"jira_delete":            {"jira_delete_issue"},
 	"jira_transition":        {"jira_transition_issue", "jira_get_transitions"},
+	"jira_comment":           {"jira_list_comments", "jira_add_comment"},
 	"jira_attachment":        {"jira_list_attachments", "jira_get_attachment", "jira_download_attachment"},
-	"confluence_page":        {"confluence_get_page"},
+	"jira_api":               {"jira_api_request"},
+	"confluence_page":        {"confluence_get_page", "confluence_create_page", "confluence_update_page"},
+	"confluence_search":      {"confluence_search", "confluence_get_children"},
 	"confluence_label":       {"confluence_list_labels", "confluence_add_labels", "confluence_remove_label"},
 	"confluence_restriction": {"confluence_list_restrictions", "confluence_add_restriction", "confluence_remove_restriction"},
 	"confluence_attachment":  {"confluence_list_attachments", "confluence_download_attachment"},
+	"confluence_api":         {"confluence_api_request"},
+}
+
+// optInGroups are left out unless named in --tools: raw API access is broad
+// and rarely needed, so it should not cost context by default.
+var optInGroups = map[string]bool{
+	"jira_api":       true,
+	"confluence_api": true,
 }
 
 func isToolEnabled(name string, enabledGroups []string) bool {
 	if len(enabledGroups) == 0 {
-		return true
+		for group, tools := range toolGroups {
+			for _, t := range tools {
+				if t == name {
+					return !optInGroups[group]
+				}
+			}
+		}
+		return false
 	}
 	for _, group := range enabledGroups {
-		tools, ok := toolGroups[group]
-		if !ok {
-			continue
-		}
-		for _, t := range tools {
+		for _, t := range toolGroups[group] {
 			if t == name {
 				return true
 			}
@@ -33,11 +49,22 @@ func isToolEnabled(name string, enabledGroups []string) bool {
 	return false
 }
 
-// AllGroups returns all available tool group names.
+// AllGroups returns all available tool group names, sorted.
 func AllGroups() []string {
 	groups := make([]string, 0, len(toolGroups))
 	for g := range toolGroups {
 		groups = append(groups, g)
 	}
+	sort.Strings(groups)
+	return groups
+}
+
+// OptInGroups returns the groups that are only enabled when named, sorted.
+func OptInGroups() []string {
+	groups := make([]string, 0, len(optInGroups))
+	for g := range optInGroups {
+		groups = append(groups, g)
+	}
+	sort.Strings(groups)
 	return groups
 }

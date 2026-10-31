@@ -38,6 +38,11 @@ func isCloud(cfg *config.AtlassianConfig) bool {
 
 func (c *Client) BaseURL() string { return c.http.BaseURL() }
 
+// Raw performs an arbitrary authenticated REST request; see httpclient.Raw.
+func (c *Client) Raw(ctx context.Context, method, path string, query url.Values, body []byte) (int, []byte, error) {
+	return c.http.Raw(ctx, method, path, query, body)
+}
+
 // IssueURL returns the browser URL of an issue.
 func (c *Client) IssueURL(key string) string {
 	return c.http.BaseURL() + "/browse/" + key
@@ -58,8 +63,16 @@ func (c *Client) GetIssue(ctx context.Context, key string) (*Issue, error) {
 // GetIssueRendered returns an issue together with the HTML-rendered versions
 // of its description and comments.
 func (c *Client) GetIssueRendered(ctx context.Context, key string) (*Issue, error) {
+	return c.GetIssueExpanded(ctx, key, "renderedFields")
+}
+
+// GetIssueExpanded returns an issue with the given expansions, e.g.
+// "renderedFields" or "names".
+func (c *Client) GetIssueExpanded(ctx context.Context, key string, expand ...string) (*Issue, error) {
 	q := url.Values{}
-	q.Set("expand", "renderedFields")
+	if len(expand) > 0 {
+		q.Set("expand", strings.Join(expand, ","))
+	}
 	var issue Issue
 	err := c.http.Do(ctx, "GET", "/rest/api/2/issue/"+url.PathEscape(key), q, nil, &issue)
 	return &issue, err
@@ -192,8 +205,10 @@ func (c *Client) DoTransition(ctx context.Context, key, transitionID string) err
 }
 
 func (c *Client) ListComments(ctx context.Context, key string) ([]Comment, error) {
+	q := url.Values{}
+	q.Set("expand", "renderedBody")
 	var resp CommentPage
-	err := c.http.Do(ctx, "GET", "/rest/api/2/issue/"+url.PathEscape(key)+"/comment", nil, nil, &resp)
+	err := c.http.Do(ctx, "GET", "/rest/api/2/issue/"+url.PathEscape(key)+"/comment", q, nil, &resp)
 	return resp.Comments, err
 }
 

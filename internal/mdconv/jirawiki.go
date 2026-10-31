@@ -14,7 +14,7 @@ import (
 	"github.com/yuin/goldmark/util"
 )
 
-var parser = goldmark.New(goldmark.WithExtensions(extension.GFM)).Parser()
+var mdParser = goldmark.New(goldmark.WithExtensions(extension.GFM)).Parser()
 
 // ToJiraWiki converts Markdown to Jira wiki markup, the text format of the
 // Jira REST API v2 (descriptions, comments).
@@ -26,7 +26,7 @@ var parser = goldmark.New(goldmark.WithExtensions(extension.GFM)).Parser()
 func ToJiraWiki(markdown string) string {
 	src := []byte(markdown)
 	w := &wikiWriter{src: src}
-	w.blocks(parser.Parse(text.NewReader(src)), "\n")
+	w.blocks(mdParser.Parse(text.NewReader(src)), "\n")
 	return strings.TrimRight(w.sb.String(), "\n") + "\n"
 }
 

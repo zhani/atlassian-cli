@@ -241,12 +241,22 @@ back to the OSC 52 terminal escape sequence otherwise. Set `GLAMOUR_STYLE`
 
 ```bash
 # Pages
-atlassian-cli confluence page get 12345          # Get page content
-atlassian-cli confluence page create --space PROJ --title "New Page" --body "<p>Hello</p>"
-atlassian-cli confluence page create --space PROJ --title "New Page" --template page.html   # Body from a file (- for stdin)
-atlassian-cli confluence page create --space PROJ --title "Child Page" --parent 12345 --body "<p>Child</p>"
-atlassian-cli confluence page update 12345 --title "Updated Title" --body "<p>New content</p>"           # version auto-detected
-atlassian-cli confluence page update 12345 --title "Updated Title" --body "<p>New content</p>" --version 3  # explicit version
+atlassian-cli confluence page get 12345                       # Get page content
+atlassian-cli confluence page get 12345 --content-only        # Only the body, as Markdown (--raw: storage XHTML)
+atlassian-cli confluence page create --space PROJ --title "New Page" --body "Hello **world**"
+atlassian-cli confluence page create --space PROJ --title "Child Page" --parent 12345 --template child.md   # - reads stdin
+atlassian-cli confluence page create --space PROJ --title "Raw" --body "<p>Hello</p>" --raw   # storage format as-is
+atlassian-cli confluence page update 12345 --title "Updated Title" --template page.md           # version auto-detected
+atlassian-cli confluence page update 12345 --title "Updated Title" --body "New" --version 3     # explicit version
+atlassian-cli confluence page edit 12345                      # Edit as Markdown in $EDITOR
+atlassian-cli confluence page list --space PROJ               # Pages of a space
+atlassian-cli confluence page children 12345                  # Child pages
+atlassian-cli confluence page versions 12345                  # Version history
+
+# Search
+atlassian-cli confluence search --text "release notes" --space PROJ
+atlassian-cli confluence search 'space = PROJ AND label = "howto"'   # CQL
+atlassian-cli confluence space list
 
 # Labels
 atlassian-cli confluence label list 12345
@@ -286,6 +296,40 @@ Jira custom fields (`customfield_*`) returned by the API are preserved: they
 appear flattened in `json` output and as extra rows in the `markdown` detail
 view for `jira issue get`. (The `table` view keeps its fixed summary columns.)
 
+### Markdown pages
+
+Page bodies are written in **Markdown** and converted to Confluence storage
+format; `--raw` sends storage XHTML unchanged. The conversion is the inverse
+of the Markdown output, so pages round-trip:
+
+| Markdown | Confluence |
+|----------|------------|
+| ```` ```lang ```` fenced code | Code macro (language kept) |
+| `> **Note:** text` (`Info`, `Warning`, `Tip`) | Note / info / warning / tip panel |
+| `![alt](https://…)` / `![alt](file.png)` | Image from URL / attachment |
+| Tables, lists, headings, emphasis, links | Same in storage format |
+| ```` ```storage ```` fenced block | Copied verbatim (embed any macro) |
+
+`confluence page edit` opens the page as Markdown in `$EDITOR` and saves a new
+version. It refuses pages that use features Markdown cannot represent (other
+macros, page links and mentions, inline styles, merged cells…) and lists them;
+use `--raw` to edit the storage XHTML instead, or `--allow-lossy` to proceed.
+
+### Raw API access
+
+`jira api` and `confluence api` send an authenticated request to any REST
+endpoint and pretty-print the JSON response:
+
+```bash
+atlassian-cli jira api /rest/api/2/field
+atlassian-cli jira api /rest/api/2/search -q jql="project = PROJ" -q maxResults=5
+atlassian-cli jira api /rest/api/2/issue/PROJ-1 -X PUT -d '{"fields":{"summary":"New"}}'
+atlassian-cli confluence api /rest/api/content/12345 -q expand=body.storage
+```
+
+`--data` takes JSON, `@FILE` or `@-` (stdin); the method defaults to `POST`
+when data is given. The command exits non-zero for HTTP status 400 and above.
+
 ## HTML to Markdown Conversion
 
 When using `-o markdown`, HTML content (Jira descriptions, Confluence page bodies and comments) is automatically converted to clean GitHub-flavored Markdown. Confluence storage format macros are also handled:
@@ -319,15 +363,29 @@ Available tool groups:
 - `jira_user` - User authentication
 - `jira_issue` - Get issue, subtasks
 - `jira_search` - Search issues via JQL
-- `jira_create` - Create issues
+- `jira_create` - Create issues (Markdown description)
 - `jira_update` - Update issues
 - `jira_delete` - Delete issues
 - `jira_transition` - Transition issues, get available transitions
+- `jira_comment` - List and add comments (Markdown)
 - `jira_attachment` - List, get, and download issue attachments
-- `confluence_page` - Get page content
+- `jira_api` - Raw request to any Jira REST endpoint *(opt-in)*
+- `confluence_page` - Get, create and update pages (Markdown bodies)
+- `confluence_search` - Search pages (CQL or text/space), list child pages
 - `confluence_label` - Label management
 - `confluence_restriction` - Page restriction management
 - `confluence_attachment` - List and download page attachments
+- `confluence_api` - Raw request to any Confluence REST endpoint *(opt-in)*
+
+Without `--tools`, every group except the *opt-in* ones is enabled; opt-in
+groups are only loaded when named.
+
+Tool results are **compact** by default: Markdown text, custom fields under
+their display names, links/subtasks/latest comments as short references, and
+no API self links or avatars. `jira_get_issue` and `jira_search_issues` take
+`full: true` to return the raw API objects.
+
+An agent skill describing the CLI is in [`skills/atlassian-cli/SKILL.md`](skills/atlassian-cli/SKILL.md).
 
 ### Claude Code Integration
 

@@ -16,7 +16,7 @@ var confluencePageCreateCmd = &cobra.Command{
 
 		space, _ := cmd.Flags().GetString("space")
 		title, _ := cmd.Flags().GetString("title")
-		body, err := readBody(cmd, "body", false, ".html")
+		body, err := confluenceBody(cmd, false)
 		if err != nil {
 			return err
 		}
@@ -38,7 +38,8 @@ var confluencePageCreateCmd = &cobra.Command{
 func init() {
 	confluencePageCreateCmd.Flags().String("space", "", "Space key (required)")
 	confluencePageCreateCmd.Flags().String("title", "", "Page title (required)")
-	addBodyFlags(confluencePageCreateCmd, "body", "Page body in Confluence storage format")
+	addBodyFlags(confluencePageCreateCmd, "body", "Page body (Markdown; storage format with --raw)")
+	addStorageFlag(confluencePageCreateCmd)
 	confluencePageCreateCmd.Flags().String("parent", "", "Parent page ID")
 	_ = confluencePageCreateCmd.MarkFlagRequired("space")
 	_ = confluencePageCreateCmd.MarkFlagRequired("title")

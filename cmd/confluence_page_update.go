@@ -16,7 +16,7 @@ var confluencePageUpdateCmd = &cobra.Command{
 		}
 
 		title, _ := cmd.Flags().GetString("title")
-		body, err := readBody(cmd, "body", true, ".html")
+		body, err := confluenceBody(cmd, true)
 		if err != nil {
 			return err
 		}
@@ -38,7 +38,8 @@ var confluencePageUpdateCmd = &cobra.Command{
 
 func init() {
 	confluencePageUpdateCmd.Flags().String("title", "", "Page title")
-	addBodyFlags(confluencePageUpdateCmd, "body", "Page body in Confluence storage format")
+	addBodyFlags(confluencePageUpdateCmd, "body", "Page body (Markdown; storage format with --raw)")
+	addStorageFlag(confluencePageUpdateCmd)
 	confluencePageUpdateCmd.Flags().Int("version", 0, "Version number to set (default: auto-fetch current version + 1)")
 	confluencePageUpdateCmd.Flags().String("message", "", "Version message")
 	_ = confluencePageUpdateCmd.MarkFlagRequired("title")

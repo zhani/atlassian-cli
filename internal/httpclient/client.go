@@ -84,15 +84,23 @@ func (c *Client) Do(ctx context.Context, method, path string, query url.Values, 
 	return nil
 }
 
-func (c *Client) do(ctx context.Context, method, path string, query url.Values, body any) (*http.Response, error) {
-	u := path
-	if !strings.HasPrefix(path, "http://") && !strings.HasPrefix(path, "https://") {
-		u = c.baseURL + path
+// Raw sends body as-is (as JSON when non-empty) and returns the response
+// status and body without interpreting them. It backs the `api` commands.
+func (c *Client) Raw(ctx context.Context, method, path string, query url.Values, body []byte) (int, []byte, error) {
+	var r io.Reader
+	if len(body) > 0 {
+		r = bytes.NewReader(body)
 	}
-	if len(query) > 0 {
-		u += "?" + query.Encode()
+	resp, err := c.send(ctx, method, path, query, r)
+	if err != nil {
+		return 0, nil, err
 	}
+	defer resp.Body.Close()
+	data, err := io.ReadAll(resp.Body)
+	return resp.StatusCode, data, err
+}
 
+func (c *Client) do(ctx context.Context, method, path string, query url.Values, body any) (*http.Response, error) {
 	var bodyReader io.Reader
 	if body != nil {
 		data, err := json.Marshal(body)
@@ -101,8 +109,20 @@ func (c *Client) do(ctx context.Context, method, path string, query url.Values, 
 		}
 		bodyReader = bytes.NewReader(data)
 	}
+	return c.send(ctx, method, path, query, bodyReader)
+}
 
-	req, err := http.NewRequestWithContext(ctx, method, u, bodyReader)
+// send issues an authenticated request; a non-nil body is sent as JSON.
+func (c *Client) send(ctx context.Context, method, path string, query url.Values, body io.Reader) (*http.Response, error) {
+	u := path
+	if !strings.HasPrefix(path, "http://") && !strings.HasPrefix(path, "https://") {
+		u = c.baseURL + path
+	}
+	if len(query) > 0 {
+		u += "?" + query.Encode()
+	}
+
+	req, err := http.NewRequestWithContext(ctx, method, u, body)
 	if err != nil {
 		return nil, fmt.Errorf("create request: %w", err)
 	}

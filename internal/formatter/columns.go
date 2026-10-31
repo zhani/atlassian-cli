@@ -119,7 +119,7 @@ func (f *Formatter) printIssueRows(issues []jira.Issue) error {
 		for _, is := range issues {
 			cells := row(is)
 			for i, c := range cells {
-				cells[i] = strings.ReplaceAll(c, "|", `\|`)
+				cells[i] = escapePipes(c)
 			}
 			fmt.Fprintf(f.writer, "| %s |\n", strings.Join(cells, " | "))
 		}
@@ -137,4 +137,8 @@ func (f *Formatter) printIssueRows(issues []jira.Issue) error {
 		}
 		return tw.Flush()
 	}
+}
+
+func escapePipes(s string) string {
+	return strings.ReplaceAll(s, "|", `\|`)
 }

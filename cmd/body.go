@@ -51,7 +51,7 @@ func readBody(cmd *cobra.Command, name string, required bool, editorExt string) 
 		return string(data), err
 	}
 	if editor, _ := cmd.Flags().GetBool("editor"); editor {
-		return editText(editorExt)
+		return editText(editorExt, "")
 	}
 	if !required {
 		return "", nil
@@ -60,9 +60,30 @@ func readBody(cmd *cobra.Command, name string, required bool, editorExt string) 
 		return readAll(os.Stdin)
 	}
 	if isatty.IsTerminal(os.Stdin.Fd()) {
-		return editText(editorExt)
+		return editText(editorExt, "")
 	}
 	return "", fmt.Errorf("--%s is required (or use --template, pipe it on stdin, or run in a terminal to use $EDITOR)", name)
+}
+
+// addStorageFlag registers --raw for commands that convert Markdown to
+// Confluence storage format.
+func addStorageFlag(cmd *cobra.Command) {
+	cmd.Flags().Bool("raw", false, "Body is Confluence storage format (XHTML) instead of Markdown")
+}
+
+// confluenceBody reads a page body registered with addBodyFlags and
+// converts it from Markdown to storage format unless --raw was given.
+func confluenceBody(cmd *cobra.Command, required bool) (string, error) {
+	raw, _ := cmd.Flags().GetBool("raw")
+	ext := ".md"
+	if raw {
+		ext = ".html"
+	}
+	body, err := readBody(cmd, "body", required, ext)
+	if err != nil || raw || strings.TrimSpace(body) == "" {
+		return body, err
+	}
+	return mdconv.ToStorage(body)
 }
 
 // jiraText converts Markdown to Jira wiki markup unless --raw was given.
@@ -88,15 +109,20 @@ func stdinPiped() bool {
 	return fi.Mode()&os.ModeNamedPipe != 0 || fi.Mode().IsRegular()
 }
 
-// editText opens $VISUAL / $EDITOR (default vi) on an empty temporary file
-// and returns what was saved. An empty result aborts the command.
-func editText(ext string) (string, error) {
+// editText opens $VISUAL / $EDITOR (default vi) on a temporary file holding
+// initial and returns what was saved. An empty result aborts the command.
+func editText(ext, initial string) (string, error) {
 	f, err := os.CreateTemp("", "atlassian-cli-*"+ext)
 	if err != nil {
 		return "", err
 	}
 	path := f.Name()
+	_, werr := f.WriteString(initial)
 	f.Close()
+	if werr != nil {
+		os.Remove(path)
+		return "", werr
+	}
 	defer os.Remove(path)
 
 	editor := os.Getenv("VISUAL")

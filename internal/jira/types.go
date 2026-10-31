@@ -25,6 +25,9 @@ type Issue struct {
 	// RenderedFields is only populated when the issue is fetched with
 	// expand=renderedFields (see GetIssueRendered).
 	RenderedFields *RenderedFields `json:"renderedFields,omitempty"`
+
+	// Names maps field IDs to display names; populated with expand=names.
+	Names map[string]string `json:"names,omitempty"`
 }
 
 // RenderedFields holds the HTML-rendered versions of an issue's text fields.
@@ -215,6 +218,9 @@ type Comment struct {
 	Body    string `json:"body"`
 	Created string `json:"created"`
 	Updated string `json:"updated"`
+
+	// RenderedBody is the HTML rendering of Body, when requested.
+	RenderedBody string `json:"renderedBody,omitempty"`
 }
 
 // CommentPage is a page of comments, as returned by the comment endpoint and

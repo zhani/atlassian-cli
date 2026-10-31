@@ -5,9 +5,29 @@ type Page struct {
 	Type    string   `json:"type"`
 	Status  string   `json:"status"`
 	Title   string   `json:"title"`
+	Space   *Space   `json:"space,omitempty"`
 	Body    PageBody `json:"body"`
 	Version Version  `json:"version"`
 	Links   Links    `json:"_links"`
+}
+
+type Space struct {
+	ID    int64  `json:"id,omitempty"`
+	Key   string `json:"key"`
+	Name  string `json:"name"`
+	Type  string `json:"type,omitempty"`
+	Links Links  `json:"_links"`
+}
+
+// pageResponse is a page of results from the paginated v1 endpoints.
+type pageResponse[T any] struct {
+	Results []T `json:"results"`
+	Start   int `json:"start"`
+	Limit   int `json:"limit"`
+	Size    int `json:"size"`
+	Links   struct {
+		Next string `json:"next"`
+	} `json:"_links"`
 }
 
 type PageBody struct {

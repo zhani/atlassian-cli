@@ -222,12 +222,12 @@ func (f *Formatter) PrintComment(c *jira.Comment) error {
 	case JSON:
 		return f.PrintJSON(c)
 	case Markdown:
-		fmt.Fprintf(f.writer, "### %s — %s\n\n%s\n", safeUserDisplay(c.Author, "Unknown"), c.Created, htmlconv.Convert(c.Body))
+		fmt.Fprintf(f.writer, "### %s — %s\n\n%s\n", safeUserDisplay(c.Author, "Unknown"), c.Created, commentMarkdown(c))
 		return nil
 	default:
 		fmt.Fprintf(f.writer, "ID\tAUTHOR\tCREATED\n")
 		fmt.Fprintf(f.writer, "%s\t%s\t%s\n", c.ID, safeUserDisplay(c.Author, "Unknown"), c.Created)
-		fmt.Fprintf(f.writer, "\n%s\n", htmlconv.Convert(c.Body))
+		fmt.Fprintf(f.writer, "\n%s\n", commentMarkdown(c))
 		return nil
 	}
 }
@@ -384,4 +384,13 @@ func safeUserDisplay(u *jira.User, fallback string) string {
 
 func safeUser(u *jira.User) string {
 	return safeUserDisplay(u, "Unassigned")
+}
+
+// commentMarkdown renders a comment body as Markdown, preferring Jira's HTML
+// rendering when it was fetched.
+func commentMarkdown(c *jira.Comment) string {
+	if c.RenderedBody != "" {
+		return htmlconv.Convert(c.RenderedBody)
+	}
+	return htmlconv.Convert(c.Body)
 }
