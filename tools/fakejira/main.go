@@ -80,6 +80,8 @@ func main() {
 	mux.HandleFunc("GET /rest/api/2/issue/{key}/transitions", s.getTransitions)
 	mux.HandleFunc("POST /rest/api/2/issue/{key}/transitions", s.doTransition)
 	mux.HandleFunc("GET /rest/api/2/issue/{key}/comment", s.getComments)
+	mux.HandleFunc("POST /rest/api/2/issue/{key}/comment", s.addComment)
+	mux.HandleFunc("POST /rest/api/2/issue", s.createIssue)
 	mux.HandleFunc("GET /rest/api/2/attachment/{id}", s.getAttachment)
 	mux.HandleFunc("GET /secure/attachment/{id}/{name}", s.downloadAttachment)
 	log.Fatal(http.ListenAndServe(*addr, s.serialize(mux)))
@@ -363,6 +365,72 @@ func (s *store) getComments(w http.ResponseWriter, r *http.Request) {
 		comments = map[string]any{"comments": []any{}, "total": 0}
 	}
 	writeJSON(w, http.StatusOK, comments)
+}
+
+func (s *store) addComment(w http.ResponseWriter, r *http.Request) {
+	is, ok := s.issues[r.PathValue("key")]
+	if !ok {
+		notFound(w, "Issue "+r.PathValue("key"))
+		return
+	}
+	var body struct {
+		Body string `json:"body"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]any{"errorMessages": []string{err.Error()}})
+		return
+	}
+	log.Printf("comment on %s:\n%s", r.PathValue("key"), body.Body)
+
+	fields := mapOf(is, "fields")
+	page := mapOf(fields, "comment")
+	if page == nil {
+		page = map[string]any{"comments": []any{}, "total": 0}
+		fields["comment"] = page
+	}
+	comments, _ := page["comments"].([]any)
+	c := map[string]any{
+		"id":      strconv.Itoa(len(comments) + 1),
+		"body":    body.Body,
+		"author":  map[string]any{"displayName": "Fake User"},
+		"created": "2026-01-01T00:00:00.000+0000",
+	}
+	page["comments"] = append(comments, c)
+	page["total"] = len(comments) + 1
+	writeJSON(w, http.StatusCreated, c)
+}
+
+// createIssue stores a new issue under the next free key of its project.
+func (s *store) createIssue(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		Fields map[string]any `json:"fields"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.Fields == nil {
+		writeJSON(w, http.StatusBadRequest, map[string]any{"errorMessages": []string{"invalid issue"}})
+		return
+	}
+	project, _ := mapOf(body.Fields, "project")["key"].(string)
+	if project == "" {
+		writeJSON(w, http.StatusBadRequest, map[string]any{"errors": map[string]string{"project": "project is required"}})
+		return
+	}
+	n := 1
+	for _, k := range s.order {
+		if p, num, ok := strings.Cut(k, "-"); ok && p == project {
+			if v, err := strconv.Atoi(num); err == nil && v >= n {
+				n = v + 1
+			}
+		}
+	}
+	key := project + "-" + strconv.Itoa(n)
+	log.Printf("create %s: %v\ndescription:\n%v", key, body.Fields["summary"], body.Fields["description"])
+
+	body.Fields["status"] = map[string]any{"name": "Open"}
+	body.Fields["created"] = "2026-01-01T00:00:00.000+0000"
+	is := map[string]any{"id": strconv.Itoa(100000 + len(s.order)), "key": key, "fields": body.Fields}
+	s.issues[key] = is
+	s.order = append(s.order, key)
+	writeJSON(w, http.StatusCreated, map[string]any{"id": is["id"], "key": key, "self": s.baseURL + "/rest/api/2/issue/" + key})
 }
 
 func (s *store) getAttachment(w http.ResponseWriter, r *http.Request) {
