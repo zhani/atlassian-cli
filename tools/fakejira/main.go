@@ -18,7 +18,9 @@
 //
 // Supported JQL is deliberately minimal: clauses joined with AND, each of the
 // form `field = value`, `field != value` or `field in (a, b)` on key, project,
-// status, issuetype, priority, assignee and labels; resolution and anything
+// status, issuetype, priority, assignee, labels, sprint, "Epic Link" and
+// parent (sprint and epic membership is synthetic, see agile.go); resolution
+// and anything
 // unrecognised is ignored, as is ORDER BY. Assignee clauses are ignored for
 // issues whose exported assignee carries no user ID (only a display name).
 package main
@@ -52,6 +54,8 @@ type store struct {
 	pageOrder []string
 
 	nextLinkID int
+	sprintOf   map[string]int    // issue key -> sprint ID, see agile.go
+	epicOf     map[string]string // issue key -> epic key
 }
 
 type attachment struct {
@@ -77,6 +81,7 @@ func main() {
 		log.Fatal(err)
 	}
 	s.seedConfluence()
+	s.seedAgile()
 	log.Printf("loaded %d issues and %d attachments; listening on %s", len(s.order), len(s.attachments), s.baseURL)
 
 	mux := http.NewServeMux()
@@ -93,6 +98,7 @@ func main() {
 	mux.HandleFunc("GET /secure/attachment/{id}/{name}", s.downloadAttachment)
 	s.registerConfluence(mux)
 	s.registerOperations(mux)
+	s.registerAgile(mux)
 	log.Fatal(http.ListenAndServe(*addr, s.serialize(mux)))
 }
 
@@ -278,7 +284,7 @@ func (s *store) search(jql string) []map[string]any {
 	var out []map[string]any
 	for _, key := range s.order {
 		is := s.issues[key]
-		if matchesAll(is, clauses) {
+		if s.matchesAll(is, clauses) {
 			out = append(out, is)
 		}
 	}
@@ -477,6 +483,10 @@ func parseJQL(jql string) []clause {
 	}
 	var out []clause
 	for _, part := range regexp.MustCompile(`(?i)\s+and\s+`).Split(jql, -1) {
+		part = strings.TrimSpace(part)
+		if strings.HasPrefix(part, "(") && strings.HasSuffix(part, ")") && !strings.Contains(strings.ToLower(part), " in ") {
+			part = part[1 : len(part)-1] // "(sprint = 2)"
+		}
 		m := clauseRe.FindStringSubmatch(part)
 		if m == nil {
 			continue
@@ -493,9 +503,9 @@ func parseJQL(jql string) []clause {
 	return out
 }
 
-func matchesAll(is map[string]any, clauses []clause) bool {
+func (s *store) matchesAll(is map[string]any, clauses []clause) bool {
 	for _, c := range clauses {
-		got, ok := fieldValues(is, c.field)
+		got, ok := s.fieldValues(is, c.field)
 		if !ok {
 			continue // unsupported field: ignore the clause
 		}
@@ -515,9 +525,17 @@ func matchesAll(is map[string]any, clauses []clause) bool {
 }
 
 // fieldValues returns the comparable values of a JQL field on an issue.
-func fieldValues(is map[string]any, field string) ([]string, bool) {
+func (s *store) fieldValues(is map[string]any, field string) ([]string, bool) {
 	f := mapOf(is, "fields")
+	key, _ := is["key"].(string)
 	switch field {
+	case "sprint":
+		if id, ok := s.sprintOf[key]; ok {
+			return []string{strconv.Itoa(id)}, true
+		}
+		return nil, true
+	case "epic link", "parent":
+		return []string{s.epicOf[key]}, true
 	case "key", "issuekey":
 		k, _ := is["key"].(string)
 		return []string{k}, true
