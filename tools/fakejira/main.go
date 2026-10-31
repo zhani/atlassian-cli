@@ -1,6 +1,7 @@
 // Command fakejira is a small stateful stand-in for the Jira Server/DC and
 // Cloud REST APIs, for trying out atlassian-cli (especially the TUI) without
-// a real instance.
+// a real instance. It also serves a minimal in-memory Confluence (see
+// confluence.go) seeded with demo pages.
 //
 // It serves issues from a data directory laid out as
 //
@@ -46,6 +47,9 @@ type store struct {
 	issues      map[string]map[string]any // key -> raw issue
 	attachments map[string]attachment     // attachment id -> file
 	statuses    []string                  // every status seen, offered as transitions
+
+	pages     map[string]*page // Confluence pages by ID, see confluence.go
+	pageOrder []string
 }
 
 type attachment struct {
@@ -70,6 +74,7 @@ func main() {
 	if err := s.load(*data); err != nil {
 		log.Fatal(err)
 	}
+	s.seedConfluence()
 	log.Printf("loaded %d issues and %d attachments; listening on %s", len(s.order), len(s.attachments), s.baseURL)
 
 	mux := http.NewServeMux()
@@ -84,6 +89,7 @@ func main() {
 	mux.HandleFunc("POST /rest/api/2/issue", s.createIssue)
 	mux.HandleFunc("GET /rest/api/2/attachment/{id}", s.getAttachment)
 	mux.HandleFunc("GET /secure/attachment/{id}/{name}", s.downloadAttachment)
+	s.registerConfluence(mux)
 	log.Fatal(http.ListenAndServe(*addr, s.serialize(mux)))
 }
 
