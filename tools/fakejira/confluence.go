@@ -62,8 +62,17 @@ func (s *store) registerConfluence(mux *http.ServeMux) {
 
 func (s *store) pageJSON(p *page, withBody bool) map[string]any {
 	cur := p.Versions[len(p.Versions)-1]
+	var ancestors []any
+	for parent := p.Parent; parent != ""; {
+		pp, ok := s.pages[parent]
+		if !ok {
+			break
+		}
+		ancestors = append([]any{map[string]any{"id": pp.ID, "title": pp.Title}}, ancestors...)
+		parent = pp.Parent
+	}
 	out := map[string]any{
-		"id": p.ID, "type": "page", "status": "current", "title": p.Title,
+		"id": p.ID, "type": "page", "status": "current", "title": p.Title, "ancestors": ancestors,
 		"space":   map[string]any{"key": p.Space, "name": p.Space + " space"},
 		"version": cur,
 		"_links":  map[string]any{"webui": "/pages/viewpage.action?pageId=" + p.ID},
@@ -195,6 +204,9 @@ func (s *store) updatePage(w http.ResponseWriter, r *http.Request) {
 	}
 	if in.Title != "" {
 		p.Title = in.Title
+	}
+	if len(in.Ancestors) > 0 {
+		p.Parent = in.Ancestors[0].ID
 	}
 	p.Body = in.Body.Storage.Value
 	in.Version.When = "2026-01-01T00:00:00.000Z"

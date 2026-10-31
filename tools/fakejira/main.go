@@ -50,6 +50,8 @@ type store struct {
 
 	pages     map[string]*page // Confluence pages by ID, see confluence.go
 	pageOrder []string
+
+	nextLinkID int
 }
 
 type attachment struct {
@@ -90,6 +92,7 @@ func main() {
 	mux.HandleFunc("GET /rest/api/2/attachment/{id}", s.getAttachment)
 	mux.HandleFunc("GET /secure/attachment/{id}/{name}", s.downloadAttachment)
 	s.registerConfluence(mux)
+	s.registerOperations(mux)
 	log.Fatal(http.ListenAndServe(*addr, s.serialize(mux)))
 }
 
