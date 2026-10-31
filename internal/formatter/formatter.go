@@ -20,11 +20,14 @@ const (
 	Table    Format = "table"
 	JSON     Format = "json"
 	Markdown Format = "markdown"
+	CSV      Format = "csv"
 )
 
 type Formatter struct {
-	format Format
-	writer io.Writer
+	format    Format
+	writer    io.Writer
+	columns   []string // issue list columns; see SetIssueColumns
+	noHeaders bool
 }
 
 func New(format Format, w io.Writer) *Formatter {
@@ -40,6 +43,8 @@ func ParseFormat(s string) Format {
 		return JSON
 	case "markdown", "md":
 		return Markdown
+	case "csv":
+		return CSV
 	default:
 		return Table
 	}
@@ -97,45 +102,17 @@ func (f *Formatter) PrintIssue(issue *jira.Issue) error {
 		}
 		return nil
 	default:
-		tw := tabwriter.NewWriter(f.writer, 0, 4, 2, ' ', 0)
-		fmt.Fprintf(tw, "KEY\tSUMMARY\tSTATUS\tASSIGNEE\tPRIORITY\n")
-		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\n",
-			issue.Key, issue.Fields.Summary,
-			safeName(issue.Fields.Status),
-			safeUser(issue.Fields.Assignee),
-			safePriority(issue.Fields.Priority))
-		return tw.Flush()
+		return f.printIssueRows([]jira.Issue{*issue})
 	}
 }
 
-// PrintIssueList prints a list of Jira issues.
+// PrintIssueList prints a list of Jira issues. Table, CSV and markdown
+// output use the columns chosen with SetIssueColumns.
 func (f *Formatter) PrintIssueList(issues []jira.Issue) error {
-	switch f.format {
-	case JSON:
+	if f.format == JSON {
 		return f.PrintJSON(issues)
-	case Markdown:
-		fmt.Fprintf(f.writer, "| Key | Summary | Status | Assignee | Priority |\n")
-		fmt.Fprintf(f.writer, "|-----|---------|--------|----------|----------|\n")
-		for _, issue := range issues {
-			fmt.Fprintf(f.writer, "| %s | %s | %s | %s | %s |\n",
-				issue.Key, issue.Fields.Summary,
-				safeName(issue.Fields.Status),
-				safeUser(issue.Fields.Assignee),
-				safePriority(issue.Fields.Priority))
-		}
-		return nil
-	default:
-		tw := tabwriter.NewWriter(f.writer, 0, 4, 2, ' ', 0)
-		fmt.Fprintf(tw, "KEY\tSUMMARY\tSTATUS\tASSIGNEE\tPRIORITY\n")
-		for _, issue := range issues {
-			fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\n",
-				issue.Key, issue.Fields.Summary,
-				safeName(issue.Fields.Status),
-				safeUser(issue.Fields.Assignee),
-				safePriority(issue.Fields.Priority))
-		}
-		return tw.Flush()
 	}
+	return f.printIssueRows(issues)
 }
 
 // PrintTransitions prints available transitions.

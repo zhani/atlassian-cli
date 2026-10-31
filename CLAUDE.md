@@ -28,16 +28,21 @@ The project is a single Go binary (`main.go` → `cmd.Execute()`) structured as 
 ### Package layout
 
 - **`cmd/`** — Cobra command tree. Each file corresponds to a command group (e.g., `jira_issue_get.go`, `confluence_page.go`). Commands instantiate an API client, call it, and delegate rendering to `internal/formatter`.
-- **`internal/config/`** — Reads `JIRA_*` / `CONFLUENCE_*` environment variables. If `EMAIL` is set, Basic auth (Cloud) is used; otherwise Bearer auth (Server/DC). `LoadJiraConfig()` / `LoadConfluenceConfig()` are the entry points.
+- **`internal/config/`** — Reads `JIRA_*` / `CONFLUENCE_*` environment variables, falling back to shared `ATLASSIAN_*` ones (a shared email is only paired with an API token, never a PAT). If `EMAIL` is set, Basic auth (Cloud) is used; otherwise Bearer auth (Server/DC). `LoadJiraConfig()` / `LoadConfluenceConfig()` are the entry points.
 - **`internal/httpclient/`** — Thin HTTP client wrapper that injects auth headers.
 - **`internal/jira/`** — Jira REST API client and type definitions (`types.go`).
 - **`internal/confluence/`** — Confluence REST API client and type definitions (`types.go`).
-- **`internal/formatter/`** — Renders API responses in three formats: `table` (tab-aligned), `json`, `markdown`. HTML content is piped through `htmlconv.Convert()` when using markdown format.
+- **`internal/formatter/`** — Renders API responses in three formats: `table` (tab-aligned), `json`, `markdown` (plus `csv` for issue lists; `columns.go` holds the selectable issue columns). HTML content is piped through `htmlconv.Convert()` when using markdown format.
+- **`internal/mdconv/`** — Markdown → Jira wiki markup (`ToJiraWiki`, goldmark AST walk). CLI commands convert description/comment text with it unless `--raw`.
 - **`internal/htmlconv/`** — HTML-to-GFM converter. Handles standard HTML tags plus Confluence storage format macros (`ac:structured-macro`, `ac:link`, `ac:emoticon`, etc.). This is where macro rendering logic lives.
 - **`internal/mcptools/`** — MCP server implementation using `github.com/modelcontextprotocol/go-sdk`. `groups.go` maps group names to tool names; `server.go` creates the server and registers tools via `maybeAdd()`.
 - **`internal/tui/`** — Bubbletea-based interactive issue browser for `jira issue search` (auto on a TTY, `-i` forces, `--plain` disables). The model talks to Jira through the `tui.Source` interface (implemented by `*jira.Client`), so refresh/transition/detail loading happen inside the TUI; tests drive `Update` against a fake source.
 
 ### Key design patterns
+
+- **Long text input**: `cmd/body.go` — `addBodyFlags` + `readBody` give a flag, `--template FILE|-`, `-e/--editor`; required text also falls back to piped stdin, then `$EDITOR` on a TTY. Optional text never reads stdin implicitly.
+- **Issue lists**: `cmd/issue_list_output.go` — `addIssueListFlags` + `showIssues` shared by `issue search` and `issue list` (TUI vs. formatter decision in `useInteractive`). `jira.BuildJQL` turns `issue list` filter flags into JQL.
+- **Dev server**: `go run ./tools/fakejira -data <dir>` serves exported issues over the REST endpoints the CLI uses; never commit real exported data.
 
 - **Output format**: All commands take `--output` / `-o` (table/json/markdown) via a persistent root flag. Commands read it with `cmd.Root().PersistentFlags().GetString("output")`, then call `formatter.ParseFormat()`.
 - **Auth dispatch**: `config.loadConfig()` tries `_API_TOKEN` first, then `_PERSONAL_TOKEN`. If `Email` is non-empty in the resulting struct, the HTTP client uses Basic auth; otherwise Bearer.
