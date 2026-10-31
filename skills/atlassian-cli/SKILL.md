@@ -13,7 +13,9 @@ Check them with `atlassian-cli jira myself`.
 ## Rules for agents
 
 - Always pass `-o markdown` (readable) or `-o json` (structured). Without `-o`,
-  `jira issue search` / `list` open an interactive browser on a terminal.
+  `jira issue search` / `list` and `jira feature` / `epic` / `sprint list`
+  open an interactive browser on a terminal. `confluence browse` is
+  interactive only.
 - Text you send is **Markdown**: descriptions, comments and Confluence page
   bodies are converted to Jira wiki markup / Confluence storage format. Add
   `--raw` only when you already have wiki markup or storage XHTML.
@@ -39,6 +41,9 @@ atlassian-cli jira issue get PROJ-1 --fields status,"Story Points" -o json
 atlassian-cli jira field list --custom "points"                    # find custom field IDs
 atlassian-cli jira issue development PROJ-1 -o json                # linked PRs and branches
 atlassian-cli jira issue attachment upload PROJ-1 report.pdf
+atlassian-cli jira feature list FEAT-12 -o json                    # issues linked to a feature, with the link
+atlassian-cli jira epic list EPIC-7 -o json                        # issues of an epic
+atlassian-cli jira sprint list --current -o json                   # issues of the active sprint
 atlassian-cli jira issue attachment download PROJ-1 log.txt --file -
 atlassian-cli jira api /rest/api/2/field                           # any REST endpoint
 ```

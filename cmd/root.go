@@ -24,12 +24,16 @@
 //	│   │   └── comment
 //	│   │       ├── list   – list comments on an issue
 //	│   │       └── add    – add a comment to an issue
+//	│   ├── feature list   – explore features and their linked issues
+//	│   ├── epic           – list (explore), add, remove
+//	│   ├── sprint         – list (explore), add
 //	│   ├── user search    – search users
 //	│   ├── field list     – list fields and their IDs
 //	│   ├── api            – raw REST request
 //	│   └── myself         – show the authenticated user
 //	├── confluence (alias: conf)
 //	│   ├── search         – search content (CQL or --text/--space)
+//	│   ├── browse         – interactive page tree
 //	│   ├── api            – raw REST request
 //	│   ├── space list     – list spaces
 //	│   ├── page
@@ -73,7 +77,7 @@ var rootCmd = &cobra.Command{
 }
 
 func init() {
-	rootCmd.PersistentFlags().StringP("output", "o", "table", "Output format: table, json, markdown, csv (csv: issue lists only)")
+	rootCmd.PersistentFlags().StringP("output", "o", "table", "Output format: table, json, markdown, csv (csv: list outputs only)")
 }
 
 func Execute() error {

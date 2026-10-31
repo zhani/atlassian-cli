@@ -87,6 +87,14 @@ func (c *Client) ListPages(ctx context.Context, spaceKey string, limit int) ([]P
 	return collect[Page](ctx, c, "/rest/api/content", q, limit)
 }
 
+// RootPages returns the top-level pages of a space.
+func (c *Client) RootPages(ctx context.Context, spaceKey string, limit int) ([]Page, error) {
+	q := url.Values{}
+	q.Set("depth", "root")
+	q.Set("expand", "space,version")
+	return collect[Page](ctx, c, "/rest/api/space/"+url.PathEscape(spaceKey)+"/content/page", q, limit)
+}
+
 // ListSpaces returns the spaces visible to the user.
 func (c *Client) ListSpaces(ctx context.Context, limit int) ([]Space, error) {
 	return collect[Space](ctx, c, "/rest/api/space", url.Values{}, limit)

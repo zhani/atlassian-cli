@@ -14,6 +14,12 @@ type AtlassianConfig struct {
 	Email          string
 	Token          string
 	DefaultProject string
+
+	// Jira explorer settings (unused for Confluence).
+	DefaultBoard     string   // JIRA_DEFAULT_BOARD: agile board ID for sprints
+	FeatureType      string   // JIRA_FEATURE_TYPE: issue type of features
+	FeatureLinkTypes []string // JIRA_FEATURE_LINK_TYPES: link phrases from a feature to its children
+	EpicLinkField    string   // JIRA_EPIC_LINK_FIELD: JQL field linking issues to epics
 }
 
 // loadConfig reads <prefix>_* variables, falling back to the shared
@@ -58,13 +64,28 @@ func loadConfig(prefix string, urlFallback func(string) string) (*AtlassianConfi
 		return nil, fmt.Errorf("%s_API_TOKEN (or %s_PERSONAL_TOKEN, ATLASSIAN_API_TOKEN, ATLASSIAN_PERSONAL_TOKEN) environment variable is required", prefix, prefix)
 	}
 
-	return &AtlassianConfig{
+	cfg := &AtlassianConfig{
 		URL:            u,
 		Email:          email,
 		Token:          token,
 		DefaultProject: os.Getenv(prefix + "_DEFAULT_PROJECT"),
-	}, nil
+		DefaultBoard:   os.Getenv(prefix + "_DEFAULT_BOARD"),
+		FeatureType:    os.Getenv(prefix + "_FEATURE_TYPE"),
+		EpicLinkField:  os.Getenv(prefix + "_EPIC_LINK_FIELD"),
+	}
+	for _, t := range strings.Split(os.Getenv(prefix+"_FEATURE_LINK_TYPES"), ",") {
+		if t = strings.TrimSpace(t); t != "" {
+			cfg.FeatureLinkTypes = append(cfg.FeatureLinkTypes, t)
+		}
+	}
+	return cfg, nil
 }
+
+// Defaults for the feature explorer.
+var (
+	DefaultFeatureType      = "New Feature"
+	DefaultFeatureLinkTypes = []string{"is implemented by", "gets values from"}
+)
 
 func LoadJiraConfig() (*AtlassianConfig, error) {
 	return loadConfig("JIRA", func(shared string) string { return shared })

@@ -19,14 +19,25 @@ func addIssueListFlags(cmd *cobra.Command) {
 	cmd.Flags().Int("max-results", 50, "Maximum number of results (fetched across pages)")
 	cmd.Flags().BoolP("interactive", "i", false, "Launch the interactive issue browser")
 	cmd.Flags().Bool("plain", false, "Print plain output even when running in a terminal")
+	cmd.MarkFlagsMutuallyExclusive("interactive", "plain")
+	addColumnFlags(cmd)
+}
+
+// addColumnFlags registers --columns and --no-headers for issue tables.
+func addColumnFlags(cmd *cobra.Command) {
 	cmd.Flags().StringSlice("columns", nil, "Columns for table/csv/markdown output: "+strings.Join(formatter.IssueColumnNames(), ", ")+", or a field name")
 	cmd.Flags().Bool("no-headers", false, "Omit the header row from table/csv output")
-	cmd.MarkFlagsMutuallyExclusive("interactive", "plain")
 }
 
 // showIssues runs jql and shows the result in the interactive browser or
 // prints it with the selected output format.
 func showIssues(cmd *cobra.Command, client *jira.Client, jql string) error {
+	return showIssuesWith(cmd, client, jql, nil)
+}
+
+// showIssuesWith is showIssues with a hook to adjust the browser options
+// (caption, annotation column).
+func showIssuesWith(cmd *cobra.Command, client *jira.Client, jql string, adjust func(*tui.Options)) error {
 	maxResults, _ := cmd.Flags().GetInt("max-results")
 	issues, err := client.SearchIssuesAll(cmd.Context(), jql, nil, maxResults)
 	if err != nil {
@@ -34,14 +45,12 @@ func showIssues(cmd *cobra.Command, client *jira.Client, jql string) error {
 	}
 
 	if useInteractive(cmd) {
-		return tui.RunIssueList(cmd.Context(), tui.Options{
-			Source:  client,
-			JQL:     jql,
-			Limit:   maxResults,
-			Issues:  issues,
-			OpenURL: browser.Open,
-			Copy:    tui.CopyToClipboard,
-		})
+		opts := browserOptions(client, maxResults)
+		opts.JQL, opts.Issues = jql, issues
+		if adjust != nil {
+			adjust(&opts)
+		}
+		return tui.RunIssueList(cmd.Context(), opts)
 	}
 
 	f := newFormatter(cmd)
@@ -56,6 +65,11 @@ func showIssues(cmd *cobra.Command, client *jira.Client, jql string) error {
 	noHeaders, _ := cmd.Flags().GetBool("no-headers")
 	f.SetNoHeaders(noHeaders)
 	return f.PrintIssueList(issues)
+}
+
+// browserOptions returns the issue browser options shared by all views.
+func browserOptions(client *jira.Client, limit int) tui.Options {
+	return tui.Options{Source: client, Limit: limit, OpenURL: browser.Open, Copy: tui.CopyToClipboard}
 }
 
 // useInteractive decides whether to launch the TUI: always with -i, never

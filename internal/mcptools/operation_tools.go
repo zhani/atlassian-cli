@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
+	"github.com/putcho01/atlassian-cli/internal/config"
 	"github.com/putcho01/atlassian-cli/internal/jira"
 )
 
@@ -84,6 +85,16 @@ type copyPageInput struct {
 type movePageInput struct {
 	PageID   string `json:"page_id" jsonschema:"Page to move"`
 	ParentID string `json:"parent_id" jsonschema:"New parent page ID (same space)"`
+}
+
+type featureChildrenInput struct {
+	Key       string   `json:"key" jsonschema:"The feature issue key"`
+	LinkTypes []string `json:"link_types,omitempty" jsonschema:"Link phrases from the feature to its issues (default: JIRA_FEATURE_LINK_TYPES, else is implemented by / gets values from)"`
+}
+
+type featureChild struct {
+	Relation string `json:"relation"`
+	compactSearchHit
 }
 
 func message(format string, args ...any) (*mcp.CallToolResult, any, error) {
@@ -255,6 +266,38 @@ func registerOperationTools(s *mcp.Server, enabledGroups []string) {
 				return nil, nil, err
 			}
 			return textResult(info)
+		})
+
+	maybeAdd(s, enabledGroups, "jira_get_feature_children", "List the issues linked to a feature (by its implementing link types), with how each is linked",
+		func(ctx context.Context, req *mcp.CallToolRequest, input featureChildrenInput) (*mcp.CallToolResult, any, error) {
+			cfg, err := config.LoadJiraConfig()
+			if err != nil {
+				return nil, nil, err
+			}
+			client := jira.NewClient(cfg)
+			phrases := input.LinkTypes
+			if len(phrases) == 0 {
+				phrases = cfg.FeatureLinkTypes
+			}
+			if len(phrases) == 0 {
+				phrases = config.DefaultFeatureLinkTypes
+			}
+			feature, err := client.GetIssue(ctx, input.Key)
+			if err != nil {
+				return nil, nil, err
+			}
+			keys, relation := jira.LinkedChildren(feature, phrases)
+			out := []featureChild{}
+			if jql := jira.KeysJQL(keys); jql != "" {
+				issues, err := client.SearchIssuesAll(ctx, jql, compactSearchFields, 0)
+				if err != nil {
+					return nil, nil, err
+				}
+				for _, is := range issues {
+					out = append(out, featureChild{Relation: relation[is.Key], compactSearchHit: compactSearchHitFrom(is)})
+				}
+			}
+			return textResult(map[string]any{"feature": input.Key, "summary": feature.Fields.Summary, "link_types": phrases, "issues": out})
 		})
 
 	maybeAdd(s, enabledGroups, "jira_clone_issue", "Clone a Jira issue (summary, description, type, priority, labels, components, assignee)",

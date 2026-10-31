@@ -15,6 +15,7 @@ var toolGroups = map[string][]string{
 	"jira_worklog":           {"jira_add_worklog"},
 	"jira_fields":            {"jira_list_fields"},
 	"jira_development":       {"jira_get_development_info"},
+	"jira_feature":           {"jira_get_feature_children"},
 	"jira_attachment":        {"jira_list_attachments", "jira_get_attachment", "jira_download_attachment", "jira_upload_attachment", "jira_delete_attachment"},
 	"jira_api":               {"jira_api_request"},
 	"confluence_page":        {"confluence_get_page", "confluence_create_page", "confluence_update_page", "confluence_copy_page", "confluence_move_page"},

@@ -11,14 +11,15 @@ import (
 // String filters may start with "~" to negate them. Assignee and Reporter
 // also accept "me" (the current user) and "x" (nobody).
 type ListOptions struct {
-	Project  string
-	Status   string
-	Assignee string
-	Reporter string
-	Type     string
-	Priority string
-	Labels   []string
-	Watching bool
+	Project    string
+	Status     string
+	Assignee   string
+	Reporter   string
+	Type       string
+	Priority   string
+	Labels     []string
+	Watching   bool
+	Unresolved bool // only issues without a resolution
 
 	// Created and Updated select issues created/updated since a point in
 	// time: a relative period such as "-7d", "2w" or "-30m", or one of
@@ -66,6 +67,9 @@ func BuildJQL(o ListOptions) (string, error) {
 	}
 	if o.Watching {
 		clauses = append(clauses, "watcher = currentUser()")
+	}
+	if o.Unresolved {
+		clauses = append(clauses, "resolution = Unresolved")
 	}
 	for _, d := range []struct{ field, value string }{{"created", o.Created}, {"updated", o.Updated}} {
 		if d.value == "" {

@@ -82,7 +82,7 @@ func (m model) helpKeys() helpKeys {
 		}
 	default:
 		return helpKeys{
-			short: []key.Binding{keys.detail, keys.open, keys.transition, keys.filter, keys.help, keys.quit},
+			short: append(append([]key.Binding{keys.detail, keys.open, keys.transition, keys.filter}, m.extraHelp...), keys.help, keys.quit),
 			full: [][]key.Binding{
 				{keys.up, keys.down, keys.pageUp, keys.pageDown, keys.top, keys.bottom},
 				append([]key.Binding{keys.detail}, actions...),

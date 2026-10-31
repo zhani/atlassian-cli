@@ -27,6 +27,7 @@ type fakeSource struct {
 	calls       []string
 	issues      []jira.Issue
 	transitions []jira.Transition
+	byJQL       map[string][]jira.Issue // per-query results, when set
 	err         error
 }
 
@@ -38,6 +39,9 @@ func (f *fakeSource) record(call string) {
 
 func (f *fakeSource) SearchIssuesAll(_ context.Context, jql string, _ []string, _ int) ([]jira.Issue, error) {
 	f.record("search " + jql)
+	if f.byJQL != nil {
+		return f.byJQL[jql], f.err
+	}
 	return f.issues, f.err
 }
 
@@ -360,7 +364,7 @@ func TestColumnsFor(t *testing.T) {
 		{width: 50, typeW: 0, assigneeW: 0},
 	}
 	for _, tt := range tests {
-		cols := columnsFor(tt.width)
+		cols := columnsFor(tt.width, "")
 		if cols[1].Width != tt.typeW || cols[3].Width != tt.assigneeW {
 			t.Errorf("width %d: type=%d assignee=%d, want %d %d", tt.width, cols[1].Width, cols[3].Width, tt.typeW, tt.assigneeW)
 		}

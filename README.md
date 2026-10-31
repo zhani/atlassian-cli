@@ -102,6 +102,10 @@ Used with Atlassian Cloud (`*.atlassian.net`). Authenticates via Basic auth usin
 | `JIRA_EMAIL` | Your Atlassian account email address |
 | `JIRA_API_TOKEN` | [API Token](https://id.atlassian.com/manage-profile/security/api-tokens) |
 | `JIRA_DEFAULT_PROJECT` | Default project key used when `--project` is omitted (optional) |
+| `JIRA_DEFAULT_BOARD` | Agile board ID for `jira sprint` (optional) |
+| `JIRA_FEATURE_TYPE` | Issue type of features for `jira feature` (default `New Feature`) |
+| `JIRA_FEATURE_LINK_TYPES` | Comma-separated link phrases from a feature to its issues (default `is implemented by,gets values from`) |
+| `JIRA_EPIC_LINK_FIELD` | JQL field linking issues to epics (default `parent` on Cloud, `Epic Link` on Server/DC) |
 | `CONFLUENCE_URL` | Confluence Cloud URL (e.g. `https://your-domain.atlassian.net/wiki`) |
 | `CONFLUENCE_EMAIL` | Your Atlassian account email address |
 | `CONFLUENCE_API_TOKEN` | API Token |
@@ -233,6 +237,37 @@ The text can come from:
 
 An optional description never reads stdin implicitly, so `issue create` inside a `while read` loop does not consume the loop's input.
 
+### Explorers
+
+Features, epics and sprints open in a two-pane explorer in a terminal: the
+list on the left, the issues of the selected entry on the right (with all
+issue browser keys). `tab` switches panes; in the issue pane `l` opens the
+issues of an epic and `h` goes back. With `--plain`, `-o` or a pipe they
+print instead.
+
+```bash
+# Features: issues of type JIRA_FEATURE_TYPE with the issues linked by JIRA_FEATURE_LINK_TYPES
+atlassian-cli jira feature list                         # explorer; Link column shows how each issue is linked
+atlassian-cli jira feature list -a me -s "In Progress"   # issue-list filter flags apply to the features
+atlassian-cli jira feature list FEAT-12                  # one feature's linked issues
+atlassian-cli jira feature list --plain -o csv           # feature,key,link,type,status,assignee,summary rows
+atlassian-cli jira feature list --type Initiative --link-type "is parent of"   # override the configuration
+
+# Epics
+atlassian-cli jira epic list                             # explorer
+atlassian-cli jira epic list EPIC-7                      # issues of an epic
+atlassian-cli jira epic add EPIC-7 PROJ-1 PROJ-2
+atlassian-cli jira epic remove PROJ-2
+
+# Sprints (board: --board, JIRA_DEFAULT_BOARD, or the project's only Scrum board)
+atlassian-cli jira sprint list                           # explorer, starting at the active sprint
+atlassian-cli jira sprint list --current -a me           # my issues in the active sprint (--prev, --next)
+atlassian-cli jira sprint list 42 --plain
+atlassian-cli jira sprint add 42 PROJ-1 PROJ-2
+```
+
+Resolved features and epics are hidden unless `--all` is given.
+
 ### Interactive issue browser
 
 `jira issue search` opens an interactive browser when run in a terminal without
@@ -280,6 +315,10 @@ atlassian-cli confluence page move 12345 678                  # Move under page 
 atlassian-cli confluence search --text "release notes" --space PROJ
 atlassian-cli confluence search 'space = PROJ AND label = "howto"'   # CQL
 atlassian-cli confluence space list
+
+# Browse interactively: page tree on the left, rendered page on the right
+atlassian-cli confluence browse          # all spaces
+atlassian-cli confluence browse PROJ     # one space
 
 # Labels
 atlassian-cli confluence label list 12345
@@ -397,6 +436,7 @@ Available tool groups:
 - `jira_worklog` - Log time
 - `jira_fields` - List fields and their IDs
 - `jira_development` - Pull requests and branches linked to an issue
+- `jira_feature` - Issues linked to a feature (by the feature link types)
 - `jira_attachment` - List, get, download, upload and delete issue attachments
 - `jira_api` - Raw request to any Jira REST endpoint *(opt-in)*
 - `confluence_page` - Get, create, update, copy and move pages (Markdown bodies)
