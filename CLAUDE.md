@@ -35,7 +35,7 @@ The project is a single Go binary (`main.go` → `cmd.Execute()`) structured as 
 - **`internal/formatter/`** — Renders API responses in three formats: `table` (tab-aligned), `json`, `markdown`. HTML content is piped through `htmlconv.Convert()` when using markdown format.
 - **`internal/htmlconv/`** — HTML-to-GFM converter. Handles standard HTML tags plus Confluence storage format macros (`ac:structured-macro`, `ac:link`, `ac:emoticon`, etc.). This is where macro rendering logic lives.
 - **`internal/mcptools/`** — MCP server implementation using `github.com/modelcontextprotocol/go-sdk`. `groups.go` maps group names to tool names; `server.go` creates the server and registers tools via `maybeAdd()`.
-- **`internal/tui/`** — Bubbletea-based interactive issue picker (activated with `jira issue search -i`).
+- **`internal/tui/`** — Bubbletea-based interactive issue browser for `jira issue search` (auto on a TTY, `-i` forces, `--plain` disables). The model talks to Jira through the `tui.Source` interface (implemented by `*jira.Client`), so refresh/transition/detail loading happen inside the TUI; tests drive `Update` against a fake source.
 
 ### Key design patterns
 

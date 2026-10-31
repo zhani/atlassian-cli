@@ -14,15 +14,34 @@ import (
 
 // Client is a Jira REST API v2 client.
 type Client struct {
-	http *httpclient.Client
+	http  *httpclient.Client
+	cloud bool
 }
 
 // NewClient creates a new Client from the given configuration.
 func NewClient(cfg *config.AtlassianConfig) *Client {
-	return &Client{http: httpclient.NewFromConfig(cfg.URL, cfg.Email, cfg.Token)}
+	return &Client{
+		http:  httpclient.NewFromConfig(cfg.URL, cfg.Email, cfg.Token),
+		cloud: isCloud(cfg),
+	}
+}
+
+// isCloud reports whether the configuration points at Jira Cloud. Cloud uses
+// Basic auth with an email, or is hosted under atlassian.net.
+func isCloud(cfg *config.AtlassianConfig) bool {
+	if cfg.Email != "" {
+		return true
+	}
+	u, err := url.Parse(cfg.URL)
+	return err == nil && strings.HasSuffix(u.Hostname(), ".atlassian.net")
 }
 
 func (c *Client) BaseURL() string { return c.http.BaseURL() }
+
+// IssueURL returns the browser URL of an issue.
+func (c *Client) IssueURL(key string) string {
+	return c.http.BaseURL() + "/browse/" + key
+}
 
 func (c *Client) GetMyself(ctx context.Context) (*User, error) {
 	var user User
@@ -34,6 +53,73 @@ func (c *Client) GetIssue(ctx context.Context, key string) (*Issue, error) {
 	var issue Issue
 	err := c.http.Do(ctx, "GET", "/rest/api/2/issue/"+url.PathEscape(key), nil, nil, &issue)
 	return &issue, err
+}
+
+// GetIssueRendered returns an issue together with the HTML-rendered versions
+// of its description and comments.
+func (c *Client) GetIssueRendered(ctx context.Context, key string) (*Issue, error) {
+	q := url.Values{}
+	q.Set("expand", "renderedFields")
+	var issue Issue
+	err := c.http.Do(ctx, "GET", "/rest/api/2/issue/"+url.PathEscape(key), q, nil, &issue)
+	return &issue, err
+}
+
+// searchPageSize is the page size requested from the search endpoints; Jira
+// caps it at 100 on Cloud and usually lower on Server/DC.
+const searchPageSize = 100
+
+// SearchIssuesAll runs a JQL query and follows pagination until limit issues
+// have been collected or the results are exhausted. A limit <= 0 means no
+// limit. When fields is empty, all navigable fields are returned.
+//
+// Cloud uses the token-paginated /search/jql endpoint; Server/DC uses the
+// offset-paginated /search endpoint.
+func (c *Client) SearchIssuesAll(ctx context.Context, jql string, fields []string, limit int) ([]Issue, error) {
+	q := url.Values{}
+	q.Set("jql", jql)
+	if len(fields) > 0 {
+		q.Set("fields", strings.Join(fields, ","))
+	} else {
+		q.Set("fields", "*navigable")
+	}
+
+	var issues []Issue
+	for {
+		pageSize := searchPageSize
+		if limit > 0 && limit-len(issues) < pageSize {
+			pageSize = limit - len(issues)
+		}
+		q.Set("maxResults", strconv.Itoa(pageSize))
+
+		var page []Issue
+		var done bool
+		if c.cloud {
+			var resp searchJQLResponse
+			if err := c.http.Do(ctx, "GET", "/rest/api/2/search/jql", q, nil, &resp); err != nil {
+				return nil, err
+			}
+			page = resp.Issues
+			done = resp.IsLast || resp.NextPageToken == ""
+			q.Set("nextPageToken", resp.NextPageToken)
+		} else {
+			q.Set("startAt", strconv.Itoa(len(issues)))
+			var resp SearchResult
+			if err := c.http.Do(ctx, "GET", "/rest/api/2/search", q, nil, &resp); err != nil {
+				return nil, err
+			}
+			page = resp.Issues
+			done = resp.StartAt+len(resp.Issues) >= resp.Total
+		}
+
+		issues = append(issues, page...)
+		if limit > 0 && len(issues) >= limit {
+			return issues[:limit], nil
+		}
+		if done || len(page) == 0 {
+			return issues, nil
+		}
+	}
 }
 
 func (c *Client) SearchIssues(ctx context.Context, jql string, maxResults int) (*SearchResult, error) {
@@ -94,7 +180,11 @@ func (c *Client) TransitionIssue(ctx context.Context, key, statusName string) er
 		}
 		return fmt.Errorf("transition %q not found, available: %s", statusName, strings.Join(available, ", "))
 	}
+	return c.DoTransition(ctx, key, transitionID)
+}
 
+// DoTransition applies the transition with the given ID to an issue.
+func (c *Client) DoTransition(ctx context.Context, key, transitionID string) error {
 	body := map[string]any{
 		"transition": map[string]string{"id": transitionID},
 	}
@@ -102,7 +192,7 @@ func (c *Client) TransitionIssue(ctx context.Context, key, statusName string) er
 }
 
 func (c *Client) ListComments(ctx context.Context, key string) ([]Comment, error) {
-	var resp commentsResponse
+	var resp CommentPage
 	err := c.http.Do(ctx, "GET", "/rest/api/2/issue/"+url.PathEscape(key)+"/comment", nil, nil, &resp)
 	return resp.Comments, err
 }

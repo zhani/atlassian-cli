@@ -21,22 +21,59 @@ type Issue struct {
 	Key    string      `json:"key"`
 	Self   string      `json:"self"`
 	Fields IssueFields `json:"fields"`
+
+	// RenderedFields is only populated when the issue is fetched with
+	// expand=renderedFields (see GetIssueRendered).
+	RenderedFields *RenderedFields `json:"renderedFields,omitempty"`
+}
+
+// RenderedFields holds the HTML-rendered versions of an issue's text fields.
+type RenderedFields struct {
+	Description string       `json:"description"`
+	Comment     *CommentPage `json:"comment,omitempty"`
+}
+
+// IssueLink connects an issue to another issue. Exactly one of InwardIssue
+// and OutwardIssue is set, depending on the direction of the link.
+type IssueLink struct {
+	ID           string        `json:"id"`
+	Type         IssueLinkType `json:"type"`
+	InwardIssue  *Issue        `json:"inwardIssue,omitempty"`
+	OutwardIssue *Issue        `json:"outwardIssue,omitempty"`
+}
+
+type IssueLinkType struct {
+	ID      string `json:"id"`
+	Name    string `json:"name"`
+	Inward  string `json:"inward"`
+	Outward string `json:"outward"`
+}
+
+// Describe returns the link phrase as seen from the issue that holds the link
+// (e.g. "is blocked by") together with the linked issue.
+func (l IssueLink) Describe() (string, *Issue) {
+	if l.OutwardIssue != nil {
+		return l.Type.Outward, l.OutwardIssue
+	}
+	return l.Type.Inward, l.InwardIssue
 }
 
 type IssueFields struct {
-	Summary     string     `json:"summary"`
-	Description string     `json:"description"`
-	Status      *Status    `json:"status"`
-	IssueType   *IssueType `json:"issuetype"`
-	Priority    *Priority  `json:"priority"`
-	Assignee    *User      `json:"assignee"`
-	Reporter    *User      `json:"reporter"`
-	Project     *Project   `json:"project"`
-	Created     string     `json:"created"`
-	Updated     string     `json:"updated"`
+	Summary     string       `json:"summary"`
+	Description string       `json:"description"`
+	Status      *Status      `json:"status"`
+	IssueType   *IssueType   `json:"issuetype"`
+	Priority    *Priority    `json:"priority"`
+	Assignee    *User        `json:"assignee"`
+	Reporter    *User        `json:"reporter"`
+	Project     *Project     `json:"project"`
+	Created     string       `json:"created"`
+	Updated     string       `json:"updated"`
 	Labels      []string     `json:"labels"`
 	Subtasks    []Issue      `json:"subtasks"`
 	Attachment  []Attachment `json:"attachment"`
+	IssueLinks  []IssueLink  `json:"issuelinks,omitempty"`
+	Comment     *CommentPage `json:"comment,omitempty"`
 
 	// Custom holds any customfield_* values returned by the API. It is
 	// populated on unmarshal and flattened back into the object on marshal,
@@ -157,14 +194,14 @@ type SearchResult struct {
 
 // CreateIssueInput holds the parameters for creating a new Jira issue.
 type CreateIssueInput struct {
-	ProjectKey  string            `json:"projectKey"`
-	Summary     string            `json:"summary"`
-	IssueType   string            `json:"issueType"`
-	Description string            `json:"description,omitempty"`
-	Assignee    string            `json:"assignee,omitempty"`
-	Priority    string            `json:"priority,omitempty"`
-	Labels      []string          `json:"labels,omitempty"`
-	CustomFields map[string]any   `json:"customFields,omitempty"`
+	ProjectKey   string         `json:"projectKey"`
+	Summary      string         `json:"summary"`
+	IssueType    string         `json:"issueType"`
+	Description  string         `json:"description,omitempty"`
+	Assignee     string         `json:"assignee,omitempty"`
+	Priority     string         `json:"priority,omitempty"`
+	Labels       []string       `json:"labels,omitempty"`
+	CustomFields map[string]any `json:"customFields,omitempty"`
 }
 
 type transitionsResponse struct {
@@ -180,9 +217,19 @@ type Comment struct {
 	Updated string `json:"updated"`
 }
 
-type commentsResponse struct {
+// CommentPage is a page of comments, as returned by the comment endpoint and
+// embedded in an issue's fields.
+type CommentPage struct {
 	Comments   []Comment `json:"comments"`
 	Total      int       `json:"total"`
 	StartAt    int       `json:"startAt"`
 	MaxResults int       `json:"maxResults"`
+}
+
+// searchJQLResponse is the response of the token-paginated Cloud search
+// endpoint (/rest/api/2/search/jql).
+type searchJQLResponse struct {
+	Issues        []Issue `json:"issues"`
+	NextPageToken string  `json:"nextPageToken"`
+	IsLast        bool    `json:"isLast"`
 }
