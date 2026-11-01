@@ -274,3 +274,44 @@ func TestChooseInsideTmux(t *testing.T) {
 		})
 	}
 }
+
+// noise is a photo-like image that compresses badly.
+func noise(t *testing.T, w, h int) *Image {
+	t.Helper()
+	src := image.NewRGBA(image.Rect(0, 0, w, h))
+	seed := uint32(1)
+	for i := range src.Pix {
+		seed = seed*1664525 + 1013904223
+		src.Pix[i] = uint8(seed >> 24)
+		if i%4 == 3 {
+			src.Pix[i] = 255
+		}
+	}
+	img, err := Decode(pngOf(t, src))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return img
+}
+
+func TestSizedSequencesFitTmuxBuffer(t *testing.T) {
+	img := noise(t, 1200, 900)
+	limit := Caps{Tmux: true}.SeqLimit()
+	if limit <= 0 || limit >= defaultTmuxBuffer {
+		t.Fatalf("limit = %d", limit)
+	}
+	if s := ITermSized(img, 1200, 900, 150, 56, limit); len(s) > limit || !strings.HasPrefix(s, "\x1b]1337;File=") {
+		t.Errorf("iTerm2 sequence of %d bytes exceeds %d", len(s), limit)
+	}
+	if s := SixelSized(img, 1200, 900, limit); len(s) > limit || !strings.HasPrefix(s, "\x1bP") {
+		t.Errorf("Sixel sequence of %d bytes exceeds %d", len(s), limit)
+	}
+	// Small images stay PNG at full size.
+	small := twoTone(t, 40, 20)
+	if s := ITermSized(small, 40, 20, 5, 1, limit); !strings.Contains(s, ":iVBOR") {
+		t.Error("small image not sent as PNG")
+	}
+	if (Caps{}).SeqLimit() != 0 {
+		t.Error("no limit expected outside tmux")
+	}
+}

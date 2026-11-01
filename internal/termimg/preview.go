@@ -158,17 +158,18 @@ func (p *Preview) draw(out io.Writer) (kittyID uint32) {
 		for i, line := range KittyPlaceholders(kittyID, c, r) {
 			fmt.Fprintf(&sb, "\x1b[%d;%dH%s", i+1, (cols-c)/2+1, line)
 		}
-	case ITerm:
-		c, r := Fit(imgW, imgH, cols, avail, cellW, cellH)
-		fmt.Fprintf(&sb, "\x1b[1;%dH", (cols-c)/2+1)
-		sb.WriteString(p.Caps.Wrap(ITermImage(item.Image.PNG, c, r), false))
-	case Sixel:
+	case ITerm, Sixel:
 		c, r := Fit(imgW, imgH, cols, avail, cellW, cellH)
 		w := min(imgW, c*cellW)
 		h := max(1, min(r*cellH, w*imgH/imgW))
 		w = max(1, h*imgW/imgH)
 		fmt.Fprintf(&sb, "\x1b[1;%dH", (cols-c)/2+1)
-		sb.WriteString(p.Caps.Wrap(SixelImage(item.Image, w, h), p.Caps.TmuxSixel))
+		limit := p.Caps.SeqLimit()
+		if p.Caps.Preview == ITerm {
+			sb.WriteString(p.Caps.Wrap(ITermSized(item.Image, w, h, c, r, limit), false))
+		} else {
+			sb.WriteString(p.Caps.Wrap(SixelSized(item.Image, w, h, limit), p.Caps.TmuxSixel))
+		}
 	default:
 		c, r := Fit(imgW, imgH, cols, avail, 2, max(2, 2*cellH/max(1, cellW)))
 		for i, line := range HalfBlocks(item.Image, c, r) {
