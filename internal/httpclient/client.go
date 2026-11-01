@@ -12,6 +12,8 @@ import (
 	"net/url"
 	"strings"
 	"time"
+
+	"github.com/zhani/atlassian-cli/internal/mirror"
 )
 
 type Client struct {
@@ -48,10 +50,14 @@ func NewFromConfig(baseURL, email, token string) *Client {
 	} else {
 		authHeader = "Bearer " + token
 	}
+	hc := &http.Client{Timeout: 30 * time.Second}
+	if mirror.IsMirrorURL(baseURL) {
+		hc.Transport = mirror.Transport() // offline mirror, served in-process
+	}
 	return &Client{
 		baseURL:    strings.TrimRight(baseURL, "/"),
 		authHeader: authHeader,
-		httpClient: &http.Client{Timeout: 30 * time.Second},
+		httpClient: hc,
 	}
 }
 

@@ -164,6 +164,7 @@ These apply to Cloud and Server/DC alike.
 | `JIRA_FEATURE_LINK_TYPES` | Comma-separated link phrases from a feature to its issues (default `is implemented by,gets values from`) |
 | `JIRA_EPIC_LINK_FIELD` | JQL field linking issues to epics (default `parent` on Cloud, `Epic Link` on Server/DC) |
 | `JIRA_DETAIL_FIELDS` | Comma-separated custom fields (names or IDs) shown in the TUI issue view, in this order (default: all non-empty) |
+| `ATLASSIAN_MIRROR` | Offline mirror directory to use instead of the servers (`off` disables auto-detection; see [Offline mirror](#offline-mirror)) |
 | `ATLASSIAN_BOOKMARKS` | Bookmark file (default `~/.config/atlassian-cli/bookmarks.yaml`) |
 | `ATLASSIAN_IMAGES` | How the Confluence browser draws images: `auto` (default), `kitty`, `iterm`, `sixel`, `blocks` or `off` |
 | `GLAMOUR_STYLE` | Colour theme of rendered issues and pages (`dark`, `light`, `dracula`, …; default from the terminal background) |
@@ -483,6 +484,64 @@ atlassian-cli confluence attachment download 12345 att456 --file out.png  # Down
 atlassian-cli confluence attachment upload 12345 diagram.png             # Same name: new version
 atlassian-cli confluence attachment delete 12345 diagram.png             # By title or ID
 ```
+
+## Offline mirror
+
+Copy Jira boards, queries and bookmarks and Confluence pages, with every
+attachment and image, to a machine that cannot reach Jira or Confluence, and
+use them there with the same commands, TUIs and MCP server, read-only.
+
+On the connected machine (normal credentials):
+
+```bash
+atlassian-cli mirror export --out mirror.tar.gz                 # board JIRA_DEFAULT_BOARD + everything bookmarked
+atlassian-cli mirror export --out mirror.tar.gz --board 42 --board 43 \
+    --jql "project = PROJ AND updated >= -30d" --page 123456     # more boards, queries, page trees
+atlassian-cli mirror export --out delta.tar.gz --since -7d       # only issues/pages changed since
+```
+
+What goes in: the issues of each board's filter (and its sprints), of each
+`--jql` query and of every bookmark (issues, queries, features with their
+linked issues, epics with their issues, sprints), the subtasks and parents
+of those issues, and each `--page` / bookmarked page with all its
+descendants. Issues keep their rendered descriptions, all comments and their
+attachments; pages keep their attachments and the images they link on the
+same site. The bookmark file and the field names come along too.
+
+Move the archive over any channel and import it on the offline machine:
+
+```bash
+atlassian-cli mirror import mirror.tar.gz            # into ~/.local/share/atlassian-cli/mirror
+atlassian-cli mirror import mirror.tar.gz --prune    # also drop issues/pages the snapshot no longer has
+atlassian-cli mirror status                          # where, how current (-o json for scripts)
+```
+
+Refresh by exporting and importing again. An import **upserts**: each issue,
+page, board and space in the archive replaces its old copy as a whole
+(attachments included), everything else is kept. Without `--since` an
+archive is a full snapshot, and `--prune` (full snapshots only) removes what
+it no longer has, listing it first. The archive's bookmarks are added to
+yours; yours are never removed. Put your own additions under `local/` in the
+mirror directory, in the same layout (`local/jira/issues/KEY/issue.json`, …):
+they are served on top of the mirror and never touched by an import.
+
+The mirror is used when `ATLASSIAN_MIRROR` names its directory, or
+automatically when no `JIRA_URL`/`CONFLUENCE_URL`/`ATLASSIAN_URL` is set and
+the default directory holds one (`ATLASSIAN_MIRROR=off` disables that). No
+token is needed. The JIRA_* explorer settings of the exporting machine apply
+unless set locally. Searches run locally: JQL with `AND`/`OR`/`NOT`,
+`= != ~ !~ < <= > >= IN`, `IS [NOT] EMPTY`, `ORDER BY`, text search
+(`text`, `summary`, `description`, `comment`, text custom fields), dates
+(`-7d`, `startOfWeek()`, …), `currentUser()` (the exporting user), sprints
+(`openSprints()`, IDs, names), `"Epic Link"`, `parent`, custom fields by name
+or `cf[ID]` and `issue in linkedIssues(KEY[, "phrase"])`; CQL with `type`,
+`space`, `title`, `text`, `id`, `ancestor`, `parent`, `label`,
+`lastmodified`, `created`, `creator`. History (`WAS`, `CHANGED`) and other
+functions are rejected with an error. Changes (create, transition, comment,
+…) are refused: "read-only mirror".
+
+`atlassian-cli mirror serve [--addr 127.0.0.1:18081]` serves the mirror over
+HTTP for other tools (Jira at `/`, Confluence at `/wiki`).
 
 ## Output Formats
 

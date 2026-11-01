@@ -5,6 +5,8 @@ import (
 	"net/url"
 	"os"
 	"strings"
+
+	"github.com/zhani/atlassian-cli/internal/mirror"
 )
 
 // AtlassianConfig holds connection settings for an Atlassian service.
@@ -27,6 +29,10 @@ type AtlassianConfig struct {
 // ATLASSIAN_* variables for anything unset. urlFallback derives the service
 // URL from ATLASSIAN_URL ("" when it cannot be derived).
 func loadConfig(prefix string, urlFallback func(string) string) (*AtlassianConfig, error) {
+	urlSet := os.Getenv(prefix+"_URL") != "" || os.Getenv("ATLASSIAN_URL") != ""
+	if dir, ok := mirror.ActiveDir(urlSet); ok {
+		return mirrorConfig(prefix, dir)
+	}
 	u := os.Getenv(prefix + "_URL")
 	if u == "" {
 		if shared := os.Getenv("ATLASSIAN_URL"); shared != "" {
@@ -77,6 +83,49 @@ func loadConfig(prefix string, urlFallback func(string) string) (*AtlassianConfi
 	cfg.FeatureLinkTypes = splitList(os.Getenv(prefix + "_FEATURE_LINK_TYPES"))
 	cfg.DetailFields = splitList(os.Getenv(prefix + "_DETAIL_FIELDS"))
 	return cfg, nil
+}
+
+// mirrorConfig points a client at the offline mirror in dir. Explorer
+// settings left unset here fall back to the exporting machine's.
+func mirrorConfig(prefix, dir string) (*AtlassianConfig, error) {
+	m, err := mirror.ReadManifest(dir)
+	if err != nil {
+		return nil, err
+	}
+	mirror.Activate(dir)
+	cfg := &AtlassianConfig{URL: mirror.JiraBase, Token: "mirror"}
+	if prefix == "CONFLUENCE" {
+		cfg.URL = mirror.ConfluenceBase
+	}
+	if m.Cloud {
+		cfg.Email = "mirror@mirror.invalid" // selects the Cloud API flavour
+	}
+	or := func(env, fallback string) string {
+		if v := os.Getenv(prefix + env); v != "" {
+			return v
+		}
+		return fallback
+	}
+	orList := func(env string, fallback []string) []string {
+		if v := splitList(os.Getenv(prefix + env)); len(v) > 0 {
+			return v
+		}
+		return fallback
+	}
+	st := m.Settings
+	cfg.DefaultProject = or("_DEFAULT_PROJECT", st.DefaultProject)
+	cfg.DefaultBoard = or("_DEFAULT_BOARD", st.DefaultBoard)
+	cfg.FeatureType = or("_FEATURE_TYPE", st.FeatureType)
+	cfg.EpicLinkField = or("_EPIC_LINK_FIELD", st.EpicLinkField)
+	cfg.FeatureLinkTypes = orList("_FEATURE_LINK_TYPES", st.FeatureLinkTypes)
+	cfg.DetailFields = orList("_DETAIL_FIELDS", st.DetailFields)
+	return cfg, nil
+}
+
+// MirrorDir returns the active offline mirror's directory, if any.
+func MirrorDir() (string, bool) {
+	set := os.Getenv("JIRA_URL") != "" || os.Getenv("CONFLUENCE_URL") != "" || os.Getenv("ATLASSIAN_URL") != ""
+	return mirror.ActiveDir(set)
 }
 
 // splitList splits a comma-separated variable, dropping empty entries.
