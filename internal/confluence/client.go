@@ -41,9 +41,14 @@ const listPageSize = 50
 // collect follows start/limit pagination of a v1 list endpoint until limit
 // results are gathered (limit <= 0: all) or the results run out.
 func collect[T any](ctx context.Context, c *Client, path string, q url.Values, limit int) ([]T, error) {
+	return collectSized[T](ctx, c, path, q, limit, listPageSize)
+}
+
+// collectSized is collect with a given page size.
+func collectSized[T any](ctx context.Context, c *Client, path string, q url.Values, limit, pageSize int) ([]T, error) {
 	var all []T
 	for {
-		size := listPageSize
+		size := pageSize
 		if limit > 0 && limit-len(all) < size {
 			size = limit - len(all)
 		}
@@ -85,6 +90,16 @@ func (c *Client) ListPages(ctx context.Context, spaceKey string, limit int) ([]P
 	q.Set("type", "page")
 	q.Set("expand", "space,version")
 	return collect[Page](ctx, c, "/rest/api/content", q, limit)
+}
+
+// SpacePages returns every page of a space with its ancestors (root
+// first), from which the whole page tree can be built.
+func (c *Client) SpacePages(ctx context.Context, spaceKey string, limit int) ([]Page, error) {
+	q := url.Values{}
+	q.Set("spaceKey", spaceKey)
+	q.Set("type", "page")
+	q.Set("expand", "ancestors")
+	return collectSized[Page](ctx, c, "/rest/api/content", q, limit, 200)
 }
 
 // RootPages returns the top-level pages of a space.

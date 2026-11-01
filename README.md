@@ -381,7 +381,10 @@ atlassian-cli confluence search --text "release notes" --space PROJ
 atlassian-cli confluence search 'space = PROJ AND label = "howto"'   # CQL
 atlassian-cli confluence space list
 
-# Browse interactively: page tree on the left, rendered page on the right
+# Browse interactively: page tree on the left, rendered page on the right.
+# / fuzzy-finds pages (fzf-style, smart case; the whole space is loaded in the
+# background): ↓/↑ or ctrl+n/ctrl+p move between matches, enter jumps to the
+# page, esc goes back. B bookmarks the page, i shows its images.
 atlassian-cli confluence browse          # all spaces
 atlassian-cli confluence browse PROJ     # one space
 

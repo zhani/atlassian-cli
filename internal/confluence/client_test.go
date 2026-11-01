@@ -439,3 +439,27 @@ func TestUploadAttachmentNewAndExisting(t *testing.T) {
 		t.Errorf("requests diff (-want +got):\n%s", diff)
 	}
 }
+
+func TestSpacePagesExpandsAncestors(t *testing.T) {
+	t.Parallel()
+	all := pagesNamed(5)
+	mux := http.NewServeMux()
+	mux.HandleFunc("/rest/api/content", pagedHandler(t, all, 2, func(r *http.Request) {
+		q := r.URL.Query()
+		if q.Get("spaceKey") != "DEV" || q.Get("type") != "page" || q.Get("expand") != "ancestors" {
+			t.Errorf("query = %s", r.URL.RawQuery)
+		}
+		if q.Get("limit") != "200" {
+			t.Errorf("page size = %s", q.Get("limit"))
+		}
+	}))
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+	got, err := newTestConfluenceClient(srv.URL).SpacePages(context.Background(), "DEV", 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if diff := cmp.Diff(pageIDs(all), pageIDs(got)); diff != "" {
+		t.Errorf("diff (-want +got):\n%s", diff)
+	}
+}

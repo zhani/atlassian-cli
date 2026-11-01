@@ -9,6 +9,7 @@ import (
 	"github.com/charmbracelet/bubbles/help"
 	"github.com/charmbracelet/bubbles/key"
 	"github.com/charmbracelet/bubbles/spinner"
+	"github.com/charmbracelet/bubbles/textinput"
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
@@ -48,6 +49,7 @@ const treeLimit = 500
 
 type treeNode struct {
 	id, title, url string
+	space          string // key of the space the node is in
 	isSpace        bool
 	depth          int
 	parent         *treeNode
@@ -99,6 +101,16 @@ type treeModel struct {
 	imageAt  []int                   // content line of each image of the shown page
 
 	focusContent bool
+
+	// Fuzzy filter (/), see pagefilter.go.
+	filtering  bool
+	filter     textinput.Model
+	filterFrom *treeNode // selection to return to on esc
+	matches    map[*treeNode]nodeMatch
+	filterSeq  int
+
+	spaceLoaded  map[string]bool // spaces whose whole page tree is loaded
+	spaceLoading map[string]bool
 	loading      bool
 	spinner      spinner.Model
 	help         help.Model
@@ -119,8 +131,11 @@ func newTree(ctx context.Context, opts TreeOptions, render markdownRenderer) tre
 		pages:    map[string]*confluence.Page{},
 		markdown: map[string]string{}, images: map[string][]*pageImage{}, rendered: map[string]string{},
 		spinner: spinner.New(spinner.WithSpinner(spinner.Dot)),
-		help:    help.New(),
-		width:   100, height: 24,
+		filter:  newTreeFilterInput(),
+
+		spaceLoaded: map[string]bool{}, spaceLoading: map[string]bool{},
+		help:  help.New(),
+		width: 100, height: 24,
 	}
 	m.layout()
 	m.loading = true
@@ -196,12 +211,22 @@ func (m treeModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			depth = parent.depth + 1
 		}
 		var nodes []*treeNode
+		if parent != nil && parent.loaded {
+			return m, nil // filled meanwhile (from the whole space tree)
+		}
 		for _, s := range msg.spaces {
-			nodes = append(nodes, &treeNode{id: s.Key, title: s.Name, isSpace: true, depth: depth, parent: parent})
+			nodes = append(nodes, &treeNode{id: s.Key, title: s.Name, space: s.Key, isSpace: true, depth: depth, parent: parent})
 		}
 		for i := range msg.pages {
 			p := &msg.pages[i]
-			nodes = append(nodes, &treeNode{id: p.ID, title: p.Title, url: m.opts.Source.WebURL(p), depth: depth, parent: parent})
+			space := m.opts.Space
+			switch {
+			case p.Space != nil:
+				space = p.Space.Key
+			case parent != nil:
+				space = parent.space
+			}
+			nodes = append(nodes, &treeNode{id: p.ID, title: p.Title, url: m.opts.Source.WebURL(p), space: space, depth: depth, parent: parent})
 		}
 		if parent == nil {
 			m.roots = nodes
@@ -210,6 +235,31 @@ func (m treeModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		parent.children, parent.loaded, parent.expanded = nodes, true, true
 		if len(nodes) == 0 {
 			m.setStatus(parent.title+" has no child pages", false)
+		}
+		return m, nil
+
+	case spaceTreeMsg:
+		delete(m.spaceLoading, msg.space)
+		if msg.err != nil {
+			m.setStatus("Loading all pages of "+msg.space+" failed: "+msg.err.Error(), true)
+			return m, nil
+		}
+		m.mergeSpaceTree(msg.space, msg.pages)
+		if m.filtering {
+			sel := m.selected()
+			m.applyTreeFilter()
+			if _, ok := m.matches[sel]; ok && sel != nil {
+				m.selectNode(sel) // keep the user's choice
+			}
+		}
+		return m, nil
+
+	case filterSettledMsg:
+		if !m.filtering || msg.seq != m.filterSeq {
+			return m, nil
+		}
+		if n := m.selected(); n != nil && n.id != m.shownID {
+			return m, m.selectionChanged()
 		}
 		return m, nil
 
@@ -272,11 +322,21 @@ func (m treeModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (m treeModel) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
-	if key.Matches(msg, keys.forceQuit) || key.Matches(msg, keys.quit) {
+	if key.Matches(msg, keys.forceQuit) {
+		m.quitting = true
+		return m, tea.Quit
+	}
+	if m.filtering {
+		return m.handleFilterKey(msg)
+	}
+	if key.Matches(msg, keys.quit) {
 		m.quitting = true
 		return m, tea.Quit
 	}
 	m.status = ""
+	if key.Matches(msg, keys.filter) {
+		return m, m.startFilter()
+	}
 
 	switch {
 	case key.Matches(msg, treeKeys.focus):
@@ -438,6 +498,9 @@ func (m treeModel) spaceOf(n *treeNode) string {
 func (m *treeModel) setStatus(s string, isErr bool) { m.status, m.statusErr = s, isErr }
 
 func (m treeModel) visible() []*treeNode {
+	if m.filterActive() {
+		return m.filteredNodes()
+	}
 	var out []*treeNode
 	var walk func(nodes []*treeNode)
 	walk = func(nodes []*treeNode) {
@@ -464,7 +527,13 @@ func (m treeModel) treeWidth() int { return min(50, max(26, m.width*35/100)) }
 
 func (m treeModel) footerHeight() int { return lipgloss.Height(m.footerView()) }
 
-func (m treeModel) treeRows() int { return max(1, m.height-m.footerHeight()-4) }
+func (m treeModel) treeRows() int {
+	rows := m.height - m.footerHeight() - 4
+	if m.filtering {
+		rows -= filterPopupHeight
+	}
+	return max(1, rows)
+}
 
 func (m *treeModel) keepCursorVisible() {
 	rows := m.treeRows()
@@ -578,23 +647,52 @@ func (m treeModel) treeView() string {
 		n := visible[i]
 		marker := "  "
 		switch {
+		case m.filterActive() && i+1 < len(visible) && visible[i+1].parent == n:
+			marker = "▾ " // shows the matches below it
 		case n.expanded:
 			marker = "▾ "
 		case !n.loaded || len(n.children) > 0:
 			marker = "▸ "
 		}
-		label := truncate(strings.Repeat("  ", n.depth)+marker+n.title, max(5, w-2))
+		prefix := strings.Repeat("  ", n.depth) + marker
+		width := max(5, w-2)
+		if m.filterActive() {
+			base := lipgloss.NewStyle()
+			match, matched := m.matches[n]
+			switch {
+			case i == m.cursor:
+				base = styleCursor
+			case !matched:
+				base = styleDim // shown only as the path to a match
+			}
+			cursor := " "
+			if i == m.cursor {
+				cursor = styleCursor.Render("▶")
+			}
+			sb.WriteString(cursor + highlight(prefix, n.title, match, width, base) + "\n")
+			continue
+		}
+		label := truncate(prefix+n.title, width)
 		if i == m.cursor {
 			sb.WriteString(styleCursor.Render("▶"+label) + "\n")
 		} else {
 			sb.WriteString(" " + label + "\n")
 		}
 	}
+	if m.filterActive() && len(m.matches) == 0 {
+		sb.WriteString(styleDim.Render(" No page matches") + "\n")
+	}
 	style := styleSidebarBlurred
 	if !m.focusContent {
 		style = styleSidebarFocused
 	}
-	return style.Render(lipgloss.NewStyle().Width(w).Height(m.content.Height).Render(sb.String()))
+	height := m.content.Height
+	body := sb.String()
+	if m.filtering {
+		body = lipgloss.NewStyle().Height(height - filterPopupHeight).MaxHeight(height - filterPopupHeight).Render(body)
+		body = lipgloss.JoinVertical(lipgloss.Left, body, m.filterPopup(w))
+	}
+	return style.Render(lipgloss.NewStyle().Width(w).Height(height).Render(body))
 }
 
 func (m treeModel) footerView() string {
@@ -610,11 +708,15 @@ func (m treeModel) footerView() string {
 }
 
 func (m treeModel) helpKeys() helpKeys {
-	short := []key.Binding{treeKeys.expand, treeKeys.collapse, treeKeys.focus, treeKeys.images, keys.open, keys.copyURL, keys.help, keys.quit}
+	if m.filtering {
+		b := []key.Binding{filterKeys.next, filterKeys.prev, filterKeys.accept, filterKeys.cancel}
+		return helpKeys{short: b, full: [][]key.Binding{b}}
+	}
+	short := []key.Binding{treeKeys.expand, treeKeys.collapse, keys.filter, treeKeys.focus, treeKeys.images, keys.open, keys.help, keys.quit}
 	return helpKeys{short: short, full: [][]key.Binding{
 		{keys.up, keys.down, keys.pageUp, keys.pageDown, keys.top, keys.bottom},
 		{treeKeys.expand, treeKeys.collapse, treeKeys.focus, treeKeys.refresh, treeKeys.images, bookmarkKeys.toggle},
-		{keys.open, keys.copyURL, keys.help, keys.quit},
+		{keys.filter, keys.open, keys.copyURL, keys.help, keys.quit},
 	}}
 }
 
