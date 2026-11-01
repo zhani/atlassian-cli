@@ -10,6 +10,21 @@ come from environment variables (`JIRA_URL` + `JIRA_API_TOKEN`/`JIRA_EMAIL` or
 `JIRA_PERSONAL_TOKEN`, the same with `CONFLUENCE_`, or shared `ATLASSIAN_*`).
 Check them with `atlassian-cli jira myself`.
 
+## Offline mirror
+
+On a machine without access to Jira/Confluence, the same commands may read
+an offline mirror (made elsewhere with `mirror export`, imported with
+`mirror import`). Check with `atlassian-cli mirror status -o json`: when it
+shows an `exported_at`, the data is a snapshot as of that time and
+everything is read-only — find issues, descriptions, comments, attachments
+and pages as usual (`jira issue get KEY -o markdown`, `jira issue search JQL
+-o json`, `jira issue attachment download KEY FILE`, `confluence search
+--text …`, `confluence page get ID -o markdown`, `bookmark list -o json`),
+but don't try to comment, transition or edit (it fails with "read-only
+mirror"); tell the user what to change instead. Say how current the data is
+when it matters. History JQL (`WAS`, `CHANGED`) is not supported there. The
+user refreshes it by exporting and importing again.
+
 ## Rules for agents
 
 - Always pass `-o markdown` (readable) or `-o json` (structured). Without `-o`,

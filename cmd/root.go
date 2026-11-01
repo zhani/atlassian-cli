@@ -55,6 +55,7 @@
 //	│       ├── list       – list restrictions on a page
 //	│       ├── add        – add a read/update restriction
 //	│       └── remove     – remove a restriction
+//	├── mirror             – export, import, status, serve (offline mirror)
 //	├── mcp-server         – start an MCP server over stdio
 //	└── version            – print version information
 package cmd
