@@ -2,6 +2,7 @@ package termimg
 
 import (
 	"bytes"
+	"fmt"
 	"image"
 	"image/color"
 	"image/png"
@@ -254,7 +255,9 @@ func TestChooseInsideTmux(t *testing.T) {
 		// tmux has Sixel but does not know the client can show it: it would
 		// print "SIXEL IMAGE", so WezTerm gets iTerm2 through passthrough.
 		{"wezterm, tmux unaware", Caps{Tmux: true, Passthrough: true}, "xterm-256color wezterm 20240203", ITerm, true},
-		{"wezterm, tmux draws sixel", Caps{Tmux: true, Passthrough: true, TmuxSixel: true}, "xterm-256color wezterm", Sixel, false},
+		// iTerm2 images are scaled by the terminal, Sixel would shrink.
+		{"wezterm, tmux draws sixel", Caps{Tmux: true, Passthrough: true, TmuxSixel: true}, "xterm-256color wezterm", ITerm, true},
+		{"wezterm, tmux sixel, no passthrough", Caps{Tmux: true, TmuxSixel: true}, "xterm-256color wezterm", Sixel, false},
 		{"foot, tmux unaware", Caps{Tmux: true, Passthrough: true}, "foot foot(1.16)", Sixel, true},
 		{"wezterm without passthrough", Caps{Tmux: true}, "wezterm", Blocks, false},
 	}
@@ -303,8 +306,12 @@ func TestSizedSequencesFitTmuxBuffer(t *testing.T) {
 	if s := ITermSized(img, 1200, 900, 150, 56, limit); len(s) > limit || !strings.HasPrefix(s, "\x1b]1337;File=") {
 		t.Errorf("iTerm2 sequence of %d bytes exceeds %d", len(s), limit)
 	}
-	if s := SixelSized(img, 1200, 900, limit); len(s) > limit || !strings.HasPrefix(s, "\x1bP") {
+	s, w, h := SixelSized(img, 1200, 900, limit)
+	if len(s) > limit || !strings.HasPrefix(s, "\x1bP") {
 		t.Errorf("Sixel sequence of %d bytes exceeds %d", len(s), limit)
+	}
+	if w >= 1200 || h >= 900 || !strings.Contains(s, fmt.Sprintf("\"1;1;%d;%d", w, h)) {
+		t.Errorf("Sixel size %d×%d not reported or not reduced", w, h)
 	}
 	// Small images stay PNG at full size.
 	small := twoTone(t, 40, 20)
