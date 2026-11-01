@@ -242,3 +242,35 @@ func TestPassthroughFallback(t *testing.T) {
 		t.Errorf("with passthrough: %+v", c)
 	}
 }
+
+func TestChooseInsideTmux(t *testing.T) {
+	tests := []struct {
+		name        string
+		caps        Caps
+		term        string
+		wantPreview Protocol
+		wantWrapped bool
+	}{
+		// tmux has Sixel but does not know the client can show it: it would
+		// print "SIXEL IMAGE", so WezTerm gets iTerm2 through passthrough.
+		{"wezterm, tmux unaware", Caps{Tmux: true, Passthrough: true}, "xterm-256color wezterm 20240203", ITerm, true},
+		{"wezterm, tmux draws sixel", Caps{Tmux: true, Passthrough: true, TmuxSixel: true}, "xterm-256color wezterm", Sixel, false},
+		{"foot, tmux unaware", Caps{Tmux: true, Passthrough: true}, "foot foot(1.16)", Sixel, true},
+		{"wezterm without passthrough", Caps{Tmux: true}, "wezterm", Blocks, false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			c := tt.caps.choose(tt.term, false)
+			if c.Preview != tt.wantPreview {
+				t.Fatalf("preview = %v, want %v", c.Preview, tt.wantPreview)
+			}
+			if c.Preview == Blocks {
+				return // nothing is sent
+			}
+			native := c.Preview == Sixel && c.TmuxSixel
+			if wrapped := c.Wrap("\x1bx", native) != "\x1bx"; wrapped != tt.wantWrapped {
+				t.Errorf("wrapped = %v, want %v", wrapped, tt.wantWrapped)
+			}
+		})
+	}
+}

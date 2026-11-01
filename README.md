@@ -318,8 +318,12 @@ asking tmux about the outer terminal):
 | Anything else | Colored half-block characters | Half-block characters |
 
 Inside tmux, real images need `set -g allow-passthrough on` in `~/.tmux.conf`
-(tmux 3.3+); Sixel goes through tmux without it when tmux has Sixel support
-(3.4+). Set `ATLASSIAN_IMAGES` to `kitty`, `iterm`, `sixel`, `blocks` or `off`
+(tmux 3.3+). Sixel goes through tmux without it when tmux has Sixel support
+(3.4+) and knows the outer terminal can show Sixel; otherwise tmux prints
+"SIXEL IMAGE" instead, and WezTerm uses the iTerm2 protocol through passthrough.
+To let tmux draw Sixel itself, declare the feature, e.g.
+`set -as terminal-features 'xterm-256color:sixel'` (applies to every client
+with that `TERM`). Set `ATLASSIAN_IMAGES` to `kitty`, `iterm`, `sixel`, `blocks` or `off`
 to override the detection.
 
 ### Confluence
