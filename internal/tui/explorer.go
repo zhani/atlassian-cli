@@ -160,6 +160,12 @@ func (m explorerModel) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case key.Matches(msg, explorerKeys.focus):
 		m.focusRight = !m.focusRight
 		return m, nil
+	case key.Matches(msg, paneKeys.left):
+		m.focusRight = false
+		return m, nil
+	case key.Matches(msg, paneKeys.right):
+		m.focusRight = true
+		return m, nil
 	}
 
 	if m.focusRight {

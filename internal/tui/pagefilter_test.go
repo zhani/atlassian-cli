@@ -88,7 +88,7 @@ func TestTreeFilterFindsCollapsedPages(t *testing.T) {
 	if !strings.Contains(view, "/ run") || !strings.Contains(view, "1/6") {
 		t.Errorf("popup missing:\n%s", view)
 	}
-	if q := m.helpKeys().short; len(q) == 0 || q[0].Help().Key != "↓/ctrl+n" {
+	if q := m.helpKeys().short; len(q) == 0 || q[0].Help().Key != "↓/ctrl+j" {
 		t.Errorf("filter help %v", q)
 	}
 }

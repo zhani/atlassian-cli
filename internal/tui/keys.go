@@ -34,6 +34,15 @@ var keys = keyMap{
 	choose:   key.NewBinding(key.WithKeys("enter"), key.WithHelp("enter", "apply")),
 }
 
+// Pane focus in the two-pane views (page tree, explorers), as in vim and
+// tmux setups: ctrl+h the left pane, ctrl+l the right one.
+var paneKeys = struct {
+	left, right key.Binding
+}{
+	left:  key.NewBinding(key.WithKeys("ctrl+h"), key.WithHelp("ctrl+h", "left pane")),
+	right: key.NewBinding(key.WithKeys("ctrl+l"), key.WithHelp("ctrl+l", "right pane")),
+}
+
 // tableKeyMap adapts the shared movement bindings to the table component.
 func tableKeyMap() table.KeyMap {
 	km := table.DefaultKeyMap()
@@ -96,11 +105,19 @@ func (m model) helpKeys() helpKeys {
 	default:
 		return helpKeys{
 			short: append(append(append([]key.Binding{keys.detail, keys.open, keys.transition, keys.filter}, m.extraHelp...), bm...), keys.help, keys.quit),
-			full: [][]key.Binding{
+			full: append([][]key.Binding{
 				{keys.up, keys.down, keys.pageUp, keys.pageDown, keys.top, keys.bottom},
 				append([]key.Binding{keys.detail}, actions...),
 				{keys.filter, keys.back, keys.help, keys.quit},
-			},
+			}, m.paneHelp()...),
 		}
 	}
+}
+
+// paneHelp lists the pane keys of an enclosing two-pane view (explorer).
+func (m model) paneHelp() [][]key.Binding {
+	if len(m.extraHelp) == 0 {
+		return nil
+	}
+	return [][]key.Binding{append(append([]key.Binding{}, m.extraHelp...), paneKeys.left, paneKeys.right)}
 }

@@ -274,7 +274,8 @@ An optional description never reads stdin implicitly, so `issue create` inside a
 
 Features, epics and sprints open in a two-pane explorer in a terminal: the
 list on the left, the issues of the selected entry on the right (with all
-issue browser keys). `tab` switches panes; in the issue pane `l` opens the
+issue browser keys). `tab` switches panes, `ctrl+h` / `ctrl+l` focus the left /
+right one; in the issue pane `l` opens the
 issues of an epic and `h` goes back. With `--plain`, `-o` or a pipe they
 print instead.
 
@@ -316,7 +317,7 @@ browser). Piped output is never interactive.
 | `ctrl+f` / `ctrl+b`, `PgDn` / `PgUp` | Page down / up |
 | `enter` / `v` | View issue (description, custom fields, links, subtasks, latest comments) |
 | `esc` | Back / clear filter |
-| `/` | Fuzzy-find the loaded issues (fzf-style across all columns, best first): `↓`/`↑` or `ctrl+n`/`ctrl+p` move, `enter` opens the issue and keeps the list filtered, `esc` clears |
+| `/` | Fuzzy-find the loaded issues (fzf-style across all columns, best first): `↓`/`↑`, `ctrl+j`/`ctrl+k` or `ctrl+n`/`ctrl+p` move, `enter` opens the issue and keeps the list filtered, `esc` clears |
 | `m` | Transition (move) the issue |
 | `o` | Open in browser |
 | `c` / `ctrl+k` | Copy issue URL / key to the clipboard |
@@ -359,7 +360,7 @@ issue view, a query in the issue browser, a feature, epic or sprint as its
 issues, a page in the page tree. Quitting that view returns to the bookmarks.
 `o` opens the bookmark on the web, `c` / `ctrl+k` copy its link / key, `r`
 renames, `d` deletes. `/` fuzzy-finds bookmarks (fzf-style, across kind,
-key/query, name and title; best match first): `↓`/`↑` or `ctrl+n`/`ctrl+p` move,
+key/query, name and title; best match first): `↓`/`↑`, `ctrl+j`/`ctrl+k` or `ctrl+n`/`ctrl+p` move,
 `enter` opens the selected bookmark, `esc` goes back to the full list.
 
 Press `b` in the issue browser, on a feature/epic/sprint in the explorers or on
@@ -383,7 +384,8 @@ page rendered on the right; child pages load when a page is expanded.
 | `enter` / `l` | Expand the page (again: step into its children) |
 | `h` | Collapse, or go to the parent |
 | `tab` / `w` | Switch between tree and page |
-| `/` | Fuzzy-find pages (the whole space is loaded in the background): `↓`/`↑` or `ctrl+n`/`ctrl+p` move between matches, `enter` jumps to the page, `esc` goes back |
+| `ctrl+h` / `ctrl+l` | Focus the tree (left) / the page (right) |
+| `/` | Fuzzy-find pages (the whole space is loaded in the background): `↓`/`↑`, `ctrl+j`/`ctrl+k` or `ctrl+n`/`ctrl+p` move between matches, `enter` jumps to the page, `esc` goes back |
 | `i` | View the page's images full screen |
 | `b` | Bookmark the page (again: remove the bookmark) |
 | `B` | Bookmarks: jump to a bookmarked page |
