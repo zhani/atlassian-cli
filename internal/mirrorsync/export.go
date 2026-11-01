@@ -15,6 +15,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -326,7 +327,8 @@ func (e *Exporter) exportJira(ctx context.Context, boards []int, marks []bookmar
 			e.warn("issue %s: %v", k, err)
 		}
 	}
-	// One level of relatives, so subtasks and parents open offline too.
+	// One level of relatives (parent, subtasks, linked issues, epic), so they open
+	// offline too; not recursive.
 	related := e.relatedKeys()
 	for _, k := range related {
 		if err := e.exportKey(ctx, k); err != nil {
@@ -563,10 +565,30 @@ func obj(m map[string]any, key string) map[string]any {
 	return v
 }
 
+// relatedKeys lists the not yet exported issues one step away from the
+// exported ones: parent, subtasks, every issue link in either direction
+// ("relates to", "is blocked by", "clones"…), the Epic Link field
+// (Server/DC; Cloud uses parent) and the tests covering a requirement in
+// Xray's Requirement Status field ("Test Coverage"). Called once after the main sources, so it
+// is not recursive: relatives of relatives are not followed.
 func (e *Exporter) relatedKeys() []string {
+	epicField := ""
+	want := "Epic Link"
+	if e.JiraCfg != nil && e.JiraCfg.EpicLinkField != "" {
+		want = e.JiraCfg.EpicLinkField
+	}
+	for id, name := range e.names {
+		if strings.EqualFold(name, want) || id == want {
+			epicField = id
+		}
+	}
+	seen := map[string]bool{}
 	var out []string
 	add := func(k any) {
-		if s, ok := k.(string); ok && s != "" && !e.done[s] {
+		s, _ := k.(string)
+		s = strings.ToUpper(strings.TrimSpace(s))
+		if s != "" && !e.done[s] && !seen[s] {
+			seen[s] = true
 			out = append(out, s)
 		}
 	}
@@ -583,8 +605,56 @@ func (e *Exporter) relatedKeys() []string {
 				add(sm["key"])
 			}
 		}
+		links, _ := f["issuelinks"].([]any)
+		for _, l := range links {
+			lm, _ := l.(map[string]any)
+			add(obj(lm, "inwardIssue")["key"])
+			add(obj(lm, "outwardIssue")["key"])
+		}
+		if epicField != "" {
+			add(f[epicField])
+		}
+		for id, v := range f {
+			if strings.HasPrefix(id, "customfield_") {
+				for _, k := range coverageKeys(v) {
+					add(k)
+				}
+			}
+		}
 	}
+	sort.Strings(out)
 	return out
+}
+
+var (
+	inListRe = regexp.MustCompile(`(?i)\b(?:issue)?key\s+in\s*\(([^)]*)\)`)
+	issueKey = regexp.MustCompile(`\b[A-Z][A-Z0-9_]*-\d+\b`)
+)
+
+// coverageKeys returns the tests named by an Xray Requirement Status value:
+// a list of per-requirement entries whose …Jql strings ("okJql",
+// "notRunJql"…) are `issueKey in (KEY, …)`. Recognised by that shape, as the
+// field's ID and even its name differ between servers; anything else yields
+// nothing.
+func coverageKeys(v any) []string {
+	entries, _ := v.([]any)
+	if m, ok := v.(map[string]any); ok {
+		entries = []any{m}
+	}
+	var keys []string
+	for _, en := range entries {
+		m, _ := en.(map[string]any)
+		for name, x := range m {
+			jql, ok := x.(string)
+			if !ok || !strings.HasSuffix(name, "Jql") {
+				continue
+			}
+			for _, in := range inListRe.FindAllStringSubmatch(jql, -1) {
+				keys = append(keys, issueKey.FindAllString(in[1], -1)...)
+			}
+		}
+	}
+	return keys
 }
 
 func readJSONFile(path string, v any) error {

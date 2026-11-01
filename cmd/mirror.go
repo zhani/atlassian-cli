@@ -46,8 +46,9 @@ features with their linked issues, epics with their issues, sprints, pages
 with their descendants) unless --no-bookmarks. Also, unless turned off: the
 issues of the active sprints (of those boards, else of JIRA_DEFAULT_PROJECT;
 there may be none, --no-active-sprint) and your issues that are unresolved or
-resolved as anything but Done/Fixed (--no-my-issues). Subtasks and parents of the
-exported issues come along. Every issue and page carries its attachments.
+resolved as anything but Done/Fixed (--no-my-issues). The issues one step away
+from the exported ones come along (parent, subtasks, epic, every linked issue in
+either direction, Xray test coverage), but not their own relatives. Every issue and page carries its attachments.
 
 Without --since the archive is a full snapshot; with it, only issues and
 pages changed since then.`,
