@@ -9,7 +9,9 @@
 //	<dir>/<KEY>/<file>         attachments of that issue (any other file)
 //
 // or from a single JSON file holding an array of issues (the output of
-// `atlassian-cli jira issue search -o json`).
+// `atlassian-cli jira issue search -o json`). An optional <dir>/names.json
+// maps field IDs to display names ({"customfield_10001": "Story Points"});
+// without it custom fields are named "Custom <id>".
 //
 // Usage:
 //
@@ -52,6 +54,8 @@ type store struct {
 
 	pages     map[string]*page // Confluence pages by ID, see confluence.go
 	pageOrder []string
+
+	fieldNames map[string]string // field ID -> name, from <data>/names.json
 
 	nextLinkID int
 	sprintOf   map[string]int    // issue key -> sprint ID, see agile.go
@@ -129,6 +133,11 @@ func (s *store) load(path string) error {
 			s.add(is, "")
 		}
 		return s.finish()
+	}
+
+	// Optional real field names: {"customfield_10001": "Story Points", ...}
+	if err := readJSON(filepath.Join(path, "names.json"), &s.fieldNames); err == nil {
+		log.Printf("loaded %d field names from names.json", len(s.fieldNames))
 	}
 
 	entries, err := os.ReadDir(path)
@@ -297,19 +306,50 @@ func (s *store) getIssue(w http.ResponseWriter, r *http.Request) {
 		notFound(w, "Issue "+r.PathValue("key"))
 		return
 	}
-	if !strings.Contains(r.URL.Query().Get("expand"), "renderedFields") {
-		writeJSON(w, http.StatusOK, is)
-		return
-	}
-	// Jira renders wiki markup to HTML; approximate it with escaped
-	// paragraphs so the rendered code path is exercised.
+	expand := r.URL.Query().Get("expand")
 	out := map[string]any{}
 	for k, v := range is {
 		out[k] = v
 	}
-	desc, _ := mapOf(is, "fields")["description"].(string)
-	out["renderedFields"] = map[string]any{"description": renderParagraphs(desc)}
+	fields := mapOf(is, "fields")
+	if strings.Contains(expand, "renderedFields") {
+		// Jira renders wiki markup to HTML; approximate it with escaped
+		// paragraphs so the rendered code path is exercised. Values that
+		// already are HTML are passed on.
+		rendered := map[string]any{}
+		for k, v := range fields {
+			text, ok := v.(string)
+			if !ok || (k != "description" && !strings.HasPrefix(k, "customfield_")) {
+				continue
+			}
+			if strings.HasPrefix(strings.TrimSpace(text), "<") {
+				rendered[k] = text
+			} else {
+				rendered[k] = renderParagraphs(text)
+			}
+		}
+		out["renderedFields"] = rendered
+	}
+	if strings.Contains(expand, "names") {
+		names := map[string]string{}
+		for k := range fields {
+			names[k] = s.fieldName(k)
+		}
+		out["names"] = names
+	}
 	writeJSON(w, http.StatusOK, out)
+}
+
+// fieldName returns the display name of a field: from names.json in the
+// data directory when present, else "Custom <id>" for custom fields.
+func (s *store) fieldName(id string) string {
+	if n := s.fieldNames[id]; n != "" {
+		return n
+	}
+	if num, ok := strings.CutPrefix(id, "customfield_"); ok {
+		return "Custom " + num
+	}
+	return id
 }
 
 func renderParagraphs(text string) string {
