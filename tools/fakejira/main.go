@@ -20,8 +20,8 @@
 //
 // Supported JQL is deliberately minimal: clauses joined with AND, each of the
 // form `field = value`, `field != value` or `field in (a, b)` on key, project,
-// status, issuetype, priority, assignee, labels, sprint, "Epic Link" and
-// parent (sprint and epic membership is synthetic, see agile.go); resolution
+// status, issuetype, priority, assignee, labels, resolution (also
+// "resolution IS [NOT] EMPTY"), sprint, "Epic Link" and parent (sprint and epic membership is synthetic, see agile.go); resolution
 // and anything
 // unrecognised is ignored, as is ORDER BY. Assignee clauses are ignored for
 // issues whose exported assignee carries no user ID (only a display name).
@@ -224,6 +224,9 @@ func (s *store) finish() error {
 			s.statuses = append(s.statuses, name)
 		}
 	}
+	if !seen["Done"] {
+		s.statuses = append(s.statuses, "Done") // so issues can be resolved
+	}
 	sort.Strings(s.statuses)
 	return nil
 }
@@ -406,6 +409,14 @@ func (s *store) doTransition(w http.ResponseWriter, r *http.Request) {
 		fields["status"] = status
 	}
 	status["name"] = s.statuses[i-1]
+	// Like a typical workflow: done-like statuses resolve the issue,
+	// others reopen it.
+	switch strings.ToLower(s.statuses[i-1]) {
+	case "done", "closed", "resolved":
+		fields["resolution"] = map[string]any{"id": "1", "name": "Done"}
+	default:
+		fields["resolution"] = nil
+	}
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -517,6 +528,8 @@ type clause struct {
 
 var clauseRe = regexp.MustCompile(`(?i)^\s*("?[\w ]+"?)\s*(!=|=|not\s+in|in)\s*(.+?)\s*$`)
 
+var emptyRe = regexp.MustCompile(`(?i)^\s*(\w+)\s+is\s+(not\s+)?empty\s*$`)
+
 func parseJQL(jql string) []clause {
 	if i := strings.Index(strings.ToLower(jql), "order by"); i >= 0 {
 		jql = jql[:i]
@@ -526,6 +539,10 @@ func parseJQL(jql string) []clause {
 		part = strings.TrimSpace(part)
 		if strings.HasPrefix(part, "(") && strings.HasSuffix(part, ")") && !strings.Contains(strings.ToLower(part), " in ") {
 			part = part[1 : len(part)-1] // "(sprint = 2)"
+		}
+		if m := emptyRe.FindStringSubmatch(part); m != nil { // "resolution IS [NOT] EMPTY"
+			out = append(out, clause{field: strings.ToLower(m[1]), negate: m[2] != "", values: []string{""}})
+			continue
 		}
 		m := clauseRe.FindStringSubmatch(part)
 		if m == nil {
@@ -605,6 +622,13 @@ func (s *store) fieldValues(is map[string]any, field string) ([]string, bool) {
 			vals = append(vals, dn)
 		}
 		return vals, true
+	case "resolution":
+		r := mapOf(f, "resolution")
+		name, _ := r["name"].(string)
+		if name == "" {
+			return []string{"", "unresolved"}, true
+		}
+		return []string{name}, true
 	case "labels":
 		var vals []string
 		if ls, ok := f["labels"].([]any); ok {
