@@ -3,8 +3,13 @@ version: 2
 builds:
   - main: .
     binary: atlassian-cli
+    env:
+      - CGO_ENABLED=0 # static binaries that run anywhere
+    flags:
+      - -trimpath
     ldflags:
       - -s -w
+      - -X github.com/zhani/atlassian-cli/cmd.version={{ .Version }}
     goos:
       - linux
       - darwin
@@ -35,3 +40,4 @@ changelog:
 
 release:
   use_existing_draft: true
+  prerelease: auto # tags like v0.3.0-rc.1 become pre-releases
