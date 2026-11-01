@@ -166,6 +166,7 @@ These apply to Cloud and Server/DC alike.
 | `JIRA_DETAIL_FIELDS` | Comma-separated custom fields (names or IDs) shown in the TUI issue view, in this order (default: all non-empty) |
 | `ATLASSIAN_MIRROR` | Offline mirror directory to use instead of the servers (`off` disables auto-detection; see [Offline mirror](#offline-mirror)) |
 | `ATLASSIAN_BOOKMARKS` | Bookmark file (default `~/.config/atlassian-cli/bookmarks.yaml`) |
+| `ATLASSIAN_CA_FILE` | Extra CA certificates to trust (PEM, one or more, or a single DER `.crt`), on top of the system ones. For a private CA, and on macOS also for server certificates the system rejects whatever the keychain trusts (e.g. valid for more than 825 days): with this set, the certificate is checked against the file when the system check fails. If it is a chain, include the issuing (intermediate) CA |
 | `ATLASSIAN_IMAGES` | How the Confluence browser draws images: `auto` (default), `kitty`, `iterm`, `sixel`, `blocks` or `off` |
 | `GLAMOUR_STYLE` | Colour theme of rendered issues and pages (`dark`, `light`, `dracula`, …; default from the terminal background) |
 | `VISUAL` / `EDITOR` | Editor for `-e`, `confluence page edit` and `bookmark edit` (default `vi`) |

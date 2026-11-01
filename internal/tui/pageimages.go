@@ -13,6 +13,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/zhani/atlassian-cli/internal/confluence"
+	"github.com/zhani/atlassian-cli/internal/httpclient"
 	"github.com/zhani/atlassian-cli/internal/termimg"
 )
 
@@ -192,14 +193,13 @@ func downloadImage(ctx context.Context, src ImageSource, ref string, attachments
 	return data, nil
 }
 
-var imageHTTP = &http.Client{Timeout: 20 * time.Second}
-
 func fetchURL(ctx context.Context, u string) (io.ReadCloser, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
 	if err != nil {
 		return nil, err
 	}
-	resp, err := imageHTTP.Do(req)
+	// Same transport as the API clients: proxy settings and ATLASSIAN_CA_FILE.
+	resp, err := (&http.Client{Timeout: 20 * time.Second, Transport: httpclient.Transport()}).Do(req)
 	if err != nil {
 		return nil, err
 	}
