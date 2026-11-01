@@ -484,8 +484,8 @@ func TestGetIssueRendered(t *testing.T) {
 	t.Parallel()
 	mux := http.NewServeMux()
 	mux.HandleFunc("/rest/api/2/issue/TEST-1", func(w http.ResponseWriter, r *http.Request) {
-		if got := r.URL.Query().Get("expand"); got != "renderedFields" {
-			t.Errorf("expand = %q, want renderedFields", got)
+		if got := r.URL.Query().Get("expand"); got != "renderedFields,names" {
+			t.Errorf("expand = %q, want renderedFields,names", got)
 		}
 		w.Header().Set("Content-Type", "application/json")
 		io.WriteString(w, `{

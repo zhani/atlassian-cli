@@ -106,6 +106,7 @@ Used with Atlassian Cloud (`*.atlassian.net`). Authenticates via Basic auth usin
 | `JIRA_FEATURE_TYPE` | Issue type of features for `jira feature` (default `New Feature`) |
 | `JIRA_FEATURE_LINK_TYPES` | Comma-separated link phrases from a feature to its issues (default `is implemented by,gets values from`) |
 | `JIRA_EPIC_LINK_FIELD` | JQL field linking issues to epics (default `parent` on Cloud, `Epic Link` on Server/DC) |
+| `JIRA_DETAIL_FIELDS` | Comma-separated custom fields (names or IDs) shown in the TUI issue view, in this order (default: all non-empty) |
 | `CONFLUENCE_URL` | Confluence Cloud URL (e.g. `https://your-domain.atlassian.net/wiki`) |
 | `CONFLUENCE_EMAIL` | Your Atlassian account email address |
 | `CONFLUENCE_API_TOKEN` | API Token |
@@ -279,7 +280,7 @@ force the browser). Piped output is never interactive.
 | `↑`/`↓`, `j`/`k` | Move |
 | `g` / `G` | Top / bottom |
 | `ctrl+f` / `ctrl+b` | Page down / up |
-| `enter` / `v` | View issue (description, links, subtasks, latest comments) |
+| `enter` / `v` | View issue (description, custom fields, links, subtasks, latest comments) |
 | `esc` | Back / clear filter |
 | `/` | Filter the loaded issues |
 | `m` | Transition (move) the issue |
@@ -288,6 +289,11 @@ force the browser). Piped output is never interactive.
 | `ctrl+r` / `F5` | Refresh |
 | `?` | Toggle full help |
 | `q` | Quit |
+
+The issue view shows custom fields by their display names: longer text fields
+(e.g. reproduction steps, comment logs) and checklists as their own sections,
+short values in a Fields list. Set `JIRA_DETAIL_FIELDS` to show only selected
+fields, e.g. `JIRA_DETAIL_FIELDS="Steps to Reproduce,Comment log"`.
 
 Copying uses `pbcopy`, `xclip`, `xsel` or `wl-copy` when available and falls
 back to the OSC 52 terminal escape sequence otherwise. Set `GLAMOUR_STYLE`

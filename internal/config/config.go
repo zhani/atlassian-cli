@@ -20,6 +20,7 @@ type AtlassianConfig struct {
 	FeatureType      string   // JIRA_FEATURE_TYPE: issue type of features
 	FeatureLinkTypes []string // JIRA_FEATURE_LINK_TYPES: link phrases from a feature to its children
 	EpicLinkField    string   // JIRA_EPIC_LINK_FIELD: JQL field linking issues to epics
+	DetailFields     []string // JIRA_DETAIL_FIELDS: custom fields shown in the TUI issue view
 }
 
 // loadConfig reads <prefix>_* variables, falling back to the shared
@@ -73,12 +74,20 @@ func loadConfig(prefix string, urlFallback func(string) string) (*AtlassianConfi
 		FeatureType:    os.Getenv(prefix + "_FEATURE_TYPE"),
 		EpicLinkField:  os.Getenv(prefix + "_EPIC_LINK_FIELD"),
 	}
-	for _, t := range strings.Split(os.Getenv(prefix+"_FEATURE_LINK_TYPES"), ",") {
+	cfg.FeatureLinkTypes = splitList(os.Getenv(prefix + "_FEATURE_LINK_TYPES"))
+	cfg.DetailFields = splitList(os.Getenv(prefix + "_DETAIL_FIELDS"))
+	return cfg, nil
+}
+
+// splitList splits a comma-separated variable, dropping empty entries.
+func splitList(v string) []string {
+	var out []string
+	for _, t := range strings.Split(v, ",") {
 		if t = strings.TrimSpace(t); t != "" {
-			cfg.FeatureLinkTypes = append(cfg.FeatureLinkTypes, t)
+			out = append(out, t)
 		}
 	}
-	return cfg, nil
+	return out
 }
 
 // Defaults for the feature explorer.

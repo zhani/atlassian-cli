@@ -43,6 +43,10 @@ type Options struct {
 	// issue key, e.g. how each issue is linked to a feature.
 	AnnotationTitle string
 	Annotations     map[string]string
+
+	// DetailFields limits the custom fields of the detail view (names or
+	// IDs, in order); empty shows all non-empty ones.
+	DetailFields []string
 }
 
 type mode int
@@ -514,7 +518,7 @@ func (m *model) refreshDetailContent() {
 		m.detail.SetContent(styleDim.Render("  Loading " + m.detailKey + "…"))
 		return
 	}
-	m.detail.SetContent(m.render(issueMarkdown(issue), max(20, m.width-2)))
+	m.detail.SetContent(m.render(issueMarkdown(issue, m.opts.DetailFields), max(20, m.width-2)))
 }
 
 // --- views ---

@@ -7,6 +7,7 @@ import (
 
 	"github.com/mattn/go-isatty"
 	"github.com/putcho01/atlassian-cli/internal/browser"
+	"github.com/putcho01/atlassian-cli/internal/config"
 	"github.com/putcho01/atlassian-cli/internal/formatter"
 	"github.com/putcho01/atlassian-cli/internal/jira"
 	"github.com/putcho01/atlassian-cli/internal/tui"
@@ -69,7 +70,11 @@ func showIssuesWith(cmd *cobra.Command, client *jira.Client, jql string, adjust 
 
 // browserOptions returns the issue browser options shared by all views.
 func browserOptions(client *jira.Client, limit int) tui.Options {
-	return tui.Options{Source: client, Limit: limit, OpenURL: browser.Open, Copy: tui.CopyToClipboard}
+	opts := tui.Options{Source: client, Limit: limit, OpenURL: browser.Open, Copy: tui.CopyToClipboard}
+	if cfg, err := config.LoadJiraConfig(); err == nil {
+		opts.DetailFields = cfg.DetailFields
+	}
+	return opts
 }
 
 // useInteractive decides whether to launch the TUI: always with -i, never
