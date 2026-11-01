@@ -55,8 +55,11 @@ type Caps struct {
 
 	Tmux        bool // running inside tmux
 	Passthrough bool // tmux forwards escape sequences (allow-passthrough on)
-	TmuxSixel   bool // tmux itself understands Sixel (no passthrough needed)
-	Terminal    string
+	// TmuxSixel: tmux draws Sixel itself for this client (no passthrough
+	// needed). tmux needs Sixel support and must know that the client
+	// terminal has the sixel feature; otherwise it shows "SIXEL IMAGE".
+	TmuxSixel bool
+	Terminal  string
 
 	blocked bool // a better protocol was given up for lack of passthrough
 }
@@ -108,7 +111,6 @@ func Detect() (Caps, error) {
 	case c.Tmux:
 		// TERM describes tmux; the client terminal comes from tmux.
 		term = strings.ToLower(c.Terminal)
-		sixel = strings.Contains(term, "sixel")
 	case os.Getenv("KITTY_WINDOW_ID") != "" || term == "xterm-kitty":
 		term = "kitty"
 	case os.Getenv("TERM_PROGRAM") == "WezTerm" || term == "wezterm":
@@ -122,10 +124,16 @@ func Detect() (Caps, error) {
 		c.Terminal = version
 	}
 
+	return c.choose(term, sixel), nil
+}
+
+// choose picks the protocols for a terminal (lower-case name or version)
+// and whether it reported Sixel support.
+func (c Caps) choose(term string, sixel bool) Caps {
 	switch {
 	case strings.Contains(term, "kitty") || strings.Contains(term, "ghostty"):
 		c.InPage, c.Preview = Kitty, Kitty
-	case c.Tmux && c.TmuxSixel && (sixel || strings.Contains(term, "wezterm") || strings.Contains(term, "foot")):
+	case c.Tmux && c.TmuxSixel:
 		c.InPage, c.Preview = Blocks, Sixel
 	case strings.Contains(term, "wezterm"):
 		c.InPage, c.Preview = Blocks, ITerm
@@ -134,7 +142,7 @@ func Detect() (Caps, error) {
 	default:
 		c.InPage, c.Preview = Blocks, Blocks
 	}
-	return c.passthroughFallback(), nil
+	return c.passthroughFallback()
 }
 
 // passthroughFallback replaces protocols that cannot get through tmux.
@@ -172,12 +180,11 @@ func tmuxInfo() (terminal string, passthrough, sixel bool) {
 		parts := strings.SplitN(strings.TrimSpace(string(out)), "|", 3)
 		if len(parts) == 3 {
 			terminal = strings.TrimSpace(parts[0])
+			clientSixel := false
 			for _, f := range strings.Split(parts[1], ",") {
-				if f == "sixel" {
-					terminal += " sixel"
-				}
+				clientSixel = clientSixel || f == "sixel"
 			}
-			sixel = parts[2] == "1"
+			sixel = clientSixel && parts[2] == "1"
 		}
 	}
 	if out, err := exec.Command("tmux", "show", "-Apv", "allow-passthrough").Output(); err == nil {
