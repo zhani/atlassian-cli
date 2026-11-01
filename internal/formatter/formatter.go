@@ -88,6 +88,7 @@ func (f *Formatter) PrintIssue(issue *jira.Issue) error {
 		fmt.Fprintf(f.writer, "## %s: %s\n\n", issue.Key, issue.Fields.Summary)
 		fmt.Fprintf(f.writer, "| Field | Value |\n|-------|-------|\n")
 		fmt.Fprintf(f.writer, "| Status | %s |\n", safeName(issue.Fields.Status))
+		fmt.Fprintf(f.writer, "| Resolution | %s |\n", issue.Fields.ResolutionName())
 		fmt.Fprintf(f.writer, "| Type | %s |\n", safeIssueType(issue.Fields.IssueType))
 		fmt.Fprintf(f.writer, "| Priority | %s |\n", safePriority(issue.Fields.Priority))
 		fmt.Fprintf(f.writer, "| Assignee | %s |\n", safeUser(issue.Fields.Assignee))

@@ -65,6 +65,21 @@ func TestBuildJQL(t *testing.T) {
 			want: `issuetype = "Epic" AND resolution = Unresolved ORDER BY created DESC`,
 		},
 		{
+			name: "resolution",
+			opts: ListOptions{Resolution: "unresolved"},
+			want: `resolution IS EMPTY ORDER BY created DESC`,
+		},
+		{
+			name: "resolved",
+			opts: ListOptions{Resolution: "~Unresolved"},
+			want: `resolution IS NOT EMPTY ORDER BY created DESC`,
+		},
+		{
+			name: "named resolution",
+			opts: ListOptions{Resolution: "~Won't Do"},
+			want: `resolution != "Won't Do" ORDER BY created DESC`,
+		},
+		{
 			name: "quoting",
 			opts: ListOptions{Status: `Say "hi" \o/`},
 			want: `status = "Say \"hi\" \\o/" ORDER BY created DESC`,

@@ -92,6 +92,7 @@ func TestCompactIssue(t *testing.T) {
 		Key:           "P-1",
 		Summary:       "Sum",
 		Status:        "Open",
+		Resolution:    "Unresolved",
 		Type:          "Bug",
 		Assignee:      "Ann",
 		Description:   "**bold**",

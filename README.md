@@ -204,12 +204,13 @@ atlassian-cli jira issue attachment delete PROJ-123 shot.png              # By f
 
 | Flag | Filter |
 |------|--------|
-| `-p, --project` | Project key |
+| `-p, --project` | Project key (default `JIRA_DEFAULT_PROJECT`; `-p ""` for all projects) |
 | `-s, --status` | Status |
 | `-a, --assignee` | Assignee: a user, `me`, or `x` (unassigned) |
 | `-r, --reporter` | Reporter: a user, `me`, or `x` |
 | `-t, --type` | Issue type |
 | `-y, --priority` | Priority |
+| `-R, --resolution` | Resolution; `Unresolved` for open issues, `~Unresolved` for resolved ones |
 | `-l, --label` | Label (repeatable) |
 | `-w, --watching` | Issues you watch |
 | `--created`, `--updated` | Since a period: `-7d`, `2w`, `-12h`, `today`, `week`, `month`, `year` |
@@ -219,7 +220,8 @@ atlassian-cli jira issue attachment delete PROJ-123 shot.png              # By f
 Prefix any value with `~` to negate it. `--show-jql` prints the query without running it.
 
 ```bash
-atlassian-cli jira issue list -a me -s~Done                       # My open work
+atlassian-cli jira issue list -a me -R Unresolved -p ""           # My open issues in all projects
+atlassian-cli jira issue list -a me -s~Done                       # Not done, in the default project
 atlassian-cli jira issue list -t Bug -y High --created week       # High-priority bugs from this week
 atlassian-cli jira issue list -a x -l backend -l~wontfix          # Unassigned backend issues
 atlassian-cli jira issue list -q "summary ~ crash" --show-jql     # Inspect the generated JQL
@@ -267,7 +269,8 @@ atlassian-cli jira sprint list 42 --plain
 atlassian-cli jira sprint add 42 PROJ-1 PROJ-2
 ```
 
-Resolved features and epics are hidden unless `--all` is given.
+Resolved features and epics are hidden unless `--all` is given (or `-R` picks
+a resolution).
 
 ### Interactive issue browser
 
@@ -346,7 +349,7 @@ atlassian-cli confluence attachment delete 12345 diagram.png             # By ti
 
 ## Output Formats
 
-All commands support three output formats via the `--output` / `-o` flag (issue lists also support `csv`, and `--columns` / `--no-headers` for `table`, `csv` and `markdown`; columns: `key`, `summary`, `status`, `assignee`, `reporter`, `priority`, `type`, `labels`, `created`, `updated`, `project`, `customfield_<id>`):
+All commands support three output formats via the `--output` / `-o` flag (issue lists also support `csv`, and `--columns` / `--no-headers` for `table`, `csv` and `markdown`; columns: `key`, `summary`, `status`, `resolution`, `assignee`, `reporter`, `priority`, `type`, `labels`, `created`, `updated`, `project`, `customfield_<id>` or a field name):
 
 ```bash
 # Default: human-readable table

@@ -19,7 +19,8 @@ type ListOptions struct {
 	Priority   string
 	Labels     []string
 	Watching   bool
-	Unresolved bool // only issues without a resolution
+	Unresolved bool   // only issues without a resolution
+	Resolution string // resolution name; "Unresolved" means none
 
 	// Created and Updated select issues created/updated since a point in
 	// time: a relative period such as "-7d", "2w" or "-30m", or one of
@@ -70,6 +71,9 @@ func BuildJQL(o ListOptions) (string, error) {
 	}
 	if o.Unresolved {
 		clauses = append(clauses, "resolution = Unresolved")
+	}
+	if o.Resolution != "" {
+		clauses = append(clauses, resolutionClause(o.Resolution))
 	}
 	for _, d := range []struct{ field, value string }{{"created", o.Created}, {"updated", o.Updated}} {
 		if d.value == "" {
@@ -134,6 +138,19 @@ func userClause(field, value string) string {
 		return field + " = currentUser()"
 	}
 	return equality(field, value)
+}
+
+// resolutionClause matches a resolution by name; "Unresolved" (and its
+// negation "~Unresolved") test for no resolution at all.
+func resolutionClause(value string) string {
+	v, neg := negated(value)
+	if strings.EqualFold(v, "unresolved") {
+		if neg {
+			return "resolution IS NOT EMPTY"
+		}
+		return "resolution IS EMPTY"
+	}
+	return equality("resolution", value)
 }
 
 func dateValue(v string) (string, error) {
