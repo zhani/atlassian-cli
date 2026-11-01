@@ -23,8 +23,8 @@ import (
 var filterKeys = struct {
 	prev, next, accept, cancel key.Binding
 }{
-	prev:   key.NewBinding(key.WithKeys("up", "ctrl+p", "ctrl+k", "shift+tab"), key.WithHelp("↑/ctrl+p", "previous match")),
-	next:   key.NewBinding(key.WithKeys("down", "ctrl+n", "ctrl+j", "tab"), key.WithHelp("↓/ctrl+n", "next match")),
+	prev:   key.NewBinding(key.WithKeys("up", "ctrl+k", "ctrl+p", "shift+tab"), key.WithHelp("↑/ctrl+k", "previous match")),
+	next:   key.NewBinding(key.WithKeys("down", "ctrl+j", "ctrl+n", "tab"), key.WithHelp("↓/ctrl+j", "next match")),
 	accept: key.NewBinding(key.WithKeys("enter"), key.WithHelp("enter", "go to page")),
 	cancel: key.NewBinding(key.WithKeys("esc"), key.WithHelp("esc", "cancel")),
 }

@@ -377,6 +377,12 @@ func (m treeModel) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case key.Matches(msg, treeKeys.focus):
 		m.focusContent = !m.focusContent
 		return m, nil
+	case key.Matches(msg, paneKeys.left):
+		m.focusContent = false
+		return m, nil
+	case key.Matches(msg, paneKeys.right):
+		m.focusContent = true
+		return m, nil
 	case key.Matches(msg, keys.help):
 		m.help.ShowAll = !m.help.ShowAll
 		m.layout()
@@ -757,7 +763,8 @@ func (m treeModel) helpKeys() helpKeys {
 	short = append(short, treeKeys.images, keys.open, keys.help, keys.quit)
 	return helpKeys{short: short, full: [][]key.Binding{
 		{keys.up, keys.down, keys.pageUp, keys.pageDown, keys.top, keys.bottom},
-		{treeKeys.expand, treeKeys.collapse, treeKeys.focus, treeKeys.refresh, treeKeys.images, bookmarkKeys.toggle, bookmarkKeys.picker},
+		{treeKeys.expand, treeKeys.collapse, treeKeys.focus, paneKeys.left, paneKeys.right, treeKeys.refresh},
+		{treeKeys.images, bookmarkKeys.toggle, bookmarkKeys.picker},
 		{keys.filter, keys.open, keys.copyURL, keys.help, keys.quit},
 	}}
 }

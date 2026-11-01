@@ -355,7 +355,7 @@ func (m bookmarkModel) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 }
 
 // handleFilterKey handles keys while the fuzzy filter is open: typing
-// narrows the list live, the arrows (ctrl+n/ctrl+p, tab) move, enter opens
+// narrows the list live, the arrows (ctrl+j/ctrl+k, ctrl+n/ctrl+p, tab) move, enter opens
 // the selected bookmark and esc returns to the full list.
 func (m bookmarkModel) handleFilterKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch {
