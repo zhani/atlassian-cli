@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## [v0.4.0](https://github.com/zhani/atlassian-cli/commits/v0.4.0) - 2026-11-01
 
 ### Offline mirror
 - Work with Jira and Confluence on a machine that can't reach them, from a snapshot exported on one that can.
