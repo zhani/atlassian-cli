@@ -3,6 +3,7 @@ package tui
 import (
 	"context"
 	"fmt"
+	"os"
 	"strings"
 
 	"github.com/charmbracelet/bubbles/help"
@@ -13,6 +14,7 @@ import (
 	"github.com/charmbracelet/lipgloss"
 	"github.com/putcho01/atlassian-cli/internal/confluence"
 	"github.com/putcho01/atlassian-cli/internal/htmlconv"
+	"github.com/putcho01/atlassian-cli/internal/termimg"
 )
 
 // PageSource is the subset of the Confluence client the page browser needs.
@@ -62,12 +64,13 @@ type (
 )
 
 var treeKeys = struct {
-	expand, collapse, focus, refresh key.Binding
+	expand, collapse, focus, refresh, images key.Binding
 }{
 	expand:   key.NewBinding(key.WithKeys("enter", "l", "right"), key.WithHelp("enter/l", "expand")),
 	collapse: key.NewBinding(key.WithKeys("h", "left", "backspace"), key.WithHelp("h", "collapse")),
 	focus:    key.NewBinding(key.WithKeys("tab", "w"), key.WithHelp("tab", "switch pane")),
 	refresh:  key.NewBinding(key.WithKeys("ctrl+r", "f5"), key.WithHelp("ctrl+r", "reload page")),
+	images:   key.NewBinding(key.WithKeys("i"), key.WithHelp("i", "view images")),
 }
 
 type treeModel struct {
@@ -81,6 +84,12 @@ type treeModel struct {
 	content viewport.Model
 	pages   map[string]*confluence.Page // loaded page content by ID
 	shownID string                      // page in the content pane
+
+	gfx      *graphics               // image drawing; nil shows captions only
+	markdown map[string]string       // page markdown with image markers, by ID
+	images   map[string][]*pageImage // images of each page, by ID
+	rendered map[string]string       // glamour output by "id/width"
+	imageAt  []int                   // content line of each image of the shown page
 
 	focusContent bool
 	loading      bool
@@ -99,8 +108,9 @@ func newTree(ctx context.Context, opts TreeOptions, render markdownRenderer) tre
 	vp.KeyMap = viewportKeyMap()
 	m := treeModel{
 		ctx: ctx, opts: opts, render: render,
-		content: vp,
-		pages:   map[string]*confluence.Page{},
+		content:  vp,
+		pages:    map[string]*confluence.Page{},
+		markdown: map[string]string{}, images: map[string][]*pageImage{}, rendered: map[string]string{},
 		spinner: spinner.New(spinner.WithSpinner(spinner.Dot)),
 		help:    help.New(),
 		width:   100, height: 24,
@@ -196,8 +206,48 @@ func (m treeModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		m.pages[msg.id] = msg.page
+		m.preparePage(msg.page)
 		if m.shownID == msg.id {
 			m.showContent()
+		}
+		return m, m.loadImages(msg.id)
+
+	case attachmentsMsg:
+		if msg.err != nil {
+			for _, im := range m.images[msg.pageID] {
+				if isAttachmentRef(im.src) {
+					im.err, im.loaded = msg.err, true
+				}
+			}
+		}
+		return m, m.fetchImages(msg.pageID, msg.atts)
+
+	case imageLoadedMsg:
+		imgs := m.images[msg.pageID]
+		if msg.idx >= len(imgs) {
+			return m, nil // page reloaded meanwhile
+		}
+		im := imgs[msg.idx]
+		im.img, im.err, im.loaded = msg.img, msg.err, true
+		if m.shownID == msg.pageID {
+			m.showContent()
+		}
+		return m, m.transmitKitty(msg.pageID, msg.idx, im)
+
+	case kittyReadyMsg:
+		imgs := m.images[msg.pageID]
+		if msg.err != nil || msg.idx >= len(imgs) {
+			return m, nil
+		}
+		imgs[msg.idx].kittyID, imgs[msg.idx].placed = msg.id, [2]int{msg.cols, msg.rows}
+		if m.shownID == msg.pageID {
+			m.showContent()
+		}
+		return m, nil
+
+	case previewDoneMsg:
+		if msg.err != nil {
+			m.setStatus(msg.err.Error(), true)
 		}
 		return m, nil
 
@@ -241,9 +291,11 @@ func (m treeModel) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.setStatus(done, false)
 		}
 		return m, nil
+	case key.Matches(msg, treeKeys.images):
+		return m.previewImages()
 	case key.Matches(msg, treeKeys.refresh):
 		if n := m.selected(); n != nil && !n.isSpace {
-			delete(m.pages, n.id)
+			m.forgetPage(n.id)
 			m.showContent()
 			m.loading = true
 			return m, tea.Batch(m.spinner.Tick, m.loadPage(n.id))
@@ -406,12 +458,51 @@ func (m *treeModel) showContent() {
 			m.content.SetContent(styleDim.Render(" Loading " + n.title + "…"))
 			return
 		}
-		body := ""
-		if p.Body.Storage != nil {
-			body = htmlconv.Convert(p.Body.Storage.Value)
+		width := m.content.Width - 2
+		key := fmt.Sprintf("%s/%d", n.id, width)
+		rendered, ok := m.rendered[key]
+		if !ok {
+			md, ok := m.markdown[n.id]
+			if !ok {
+				md = m.preparePage(p)
+			}
+			rendered = m.render(md, width)
+			m.rendered[key] = rendered
 		}
-		header := fmt.Sprintf("# %s\n\n_Version %d · %s_\n\n", p.Title, p.Version.Number, p.Version.When)
-		m.content.SetContent(m.render(header+body, m.content.Width-2))
+		var content string
+		content, m.imageAt = m.placeImages(rendered, m.images[n.id])
+		m.content.SetContent(content)
+	}
+}
+
+// preparePage converts a page to markdown, replacing its images by markers.
+func (m *treeModel) preparePage(p *confluence.Page) string {
+	body := ""
+	if p.Body.Storage != nil {
+		body = htmlconv.Convert(p.Body.Storage.Value)
+	}
+	body, imgs := extractImages(body)
+	md := fmt.Sprintf("# %s\n\n_Version %d · %s_\n\n", p.Title, p.Version.Number, p.Version.When) + body
+	m.markdown[p.ID], m.images[p.ID] = md, imgs
+	return md
+}
+
+// forgetPage drops a loaded page and everything derived from it.
+func (m *treeModel) forgetPage(id string) {
+	delete(m.pages, id)
+	delete(m.markdown, id)
+	if m.gfx.kitty() {
+		for _, im := range m.images[id] {
+			if im.kittyID != 0 {
+				m.gfx.out.WriteSeqs(m.gfx.caps.Wrap(termimg.KittyDelete(im.kittyID), false)) //nolint:errcheck
+			}
+		}
+	}
+	delete(m.images, id)
+	for k := range m.rendered {
+		if strings.HasPrefix(k, id+"/") {
+			delete(m.rendered, k)
+		}
 	}
 }
 
@@ -479,10 +570,10 @@ func (m treeModel) footerView() string {
 }
 
 func (m treeModel) helpKeys() helpKeys {
-	short := []key.Binding{treeKeys.expand, treeKeys.collapse, treeKeys.focus, keys.open, keys.copyURL, keys.help, keys.quit}
+	short := []key.Binding{treeKeys.expand, treeKeys.collapse, treeKeys.focus, treeKeys.images, keys.open, keys.copyURL, keys.help, keys.quit}
 	return helpKeys{short: short, full: [][]key.Binding{
 		{keys.up, keys.down, keys.pageUp, keys.pageDown, keys.top, keys.bottom},
-		{treeKeys.expand, treeKeys.collapse, treeKeys.focus, treeKeys.refresh},
+		{treeKeys.expand, treeKeys.collapse, treeKeys.focus, treeKeys.refresh, treeKeys.images},
 		{keys.open, keys.copyURL, keys.help, keys.quit},
 	}}
 }
@@ -490,7 +581,26 @@ func (m treeModel) helpKeys() helpKeys {
 // RunPageTree launches the Confluence page browser and blocks until the
 // user quits.
 func RunPageTree(ctx context.Context, opts TreeOptions) error {
+	caps, err := termimg.Detect()
+	if err != nil {
+		return err
+	}
+	out := termimg.NewOutput(os.Stdout)
+	cellW, cellH := termimg.CellSize()
 	m := newTree(ctx, opts, glamourRenderer())
-	_, err := tea.NewProgram(m, tea.WithAltScreen(), tea.WithContext(ctx)).Run()
+	m.gfx = &graphics{caps: caps, out: out, cellW: cellW, cellH: cellH}
+	if hint := caps.Hint(); hint != "" {
+		m.setStatus(hint, false)
+	}
+	final, err := tea.NewProgram(m, tea.WithAltScreen(), tea.WithContext(ctx), tea.WithOutput(out)).Run()
+	if fm, ok := final.(treeModel); ok && m.gfx.kitty() {
+		for _, imgs := range fm.images {
+			for _, im := range imgs {
+				if im.kittyID != 0 {
+					out.WriteSeqs(caps.Wrap(termimg.KittyDelete(im.kittyID), false)) //nolint:errcheck
+				}
+			}
+		}
+	}
 	return err
 }

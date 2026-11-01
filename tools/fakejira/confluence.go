@@ -36,6 +36,17 @@ func (s *store) seedConfluence() {
 	s.pages = map[string]*page{}
 	s.addPage("Welcome", "DEMO", "", demoStorage)
 	s.addPage("Uses macros", "DEMO", "1", lossyStorage)
+	diagrams := s.addPage("Diagrams", "DEMO", "1", "")
+	links := s.attachDemoImages(diagrams.ID)
+	diagrams.Body = `<p>The system at a glance:</p>` +
+		`<ac:image ac:alt="Architecture"><ri:attachment ri:filename="architecture.png" /></ac:image>` +
+		`<h2>Throughput</h2><p>Requests per day last week.</p>` +
+		`<ac:image><ri:attachment ri:filename="chart.jpg" /></ac:image>` +
+		`<h2>Linked image</h2><p>An image by URL rather than as an attachment:</p>` +
+		`<ac:image><ri:url ri:value="` + s.baseURL + links["gradient.png"] + `" /></ac:image>` +
+		`<table><tbody><tr><th>Name</th><th>Preview</th></tr>` +
+		`<tr><td>chart</td><td><ac:image ac:height="40"><ri:attachment ri:filename="chart.jpg" /></ac:image></td></tr></tbody></table>` +
+		`<p>A missing attachment:</p><ac:image><ri:attachment ri:filename="missing.png" /></ac:image>`
 }
 
 func (s *store) addPage(title, space, parent, body string) *page {
