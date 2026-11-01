@@ -43,7 +43,10 @@ var mirrorExportCmd = &cobra.Command{
 else JIRA_DEFAULT_BOARD) and of each --jql query, the pages of each --page
 with all their descendants, and everything bookmarked (issues, queries,
 features with their linked issues, epics with their issues, sprints, pages
-with their descendants) unless --no-bookmarks. Subtasks and parents of the
+with their descendants) unless --no-bookmarks. Also, unless turned off: the
+issues of the active sprints (of those boards, else of JIRA_DEFAULT_PROJECT;
+there may be none, --no-active-sprint) and your issues that are unresolved or
+resolved as anything but Done/Fixed (--no-my-issues). Subtasks and parents of the
 exported issues come along. Every issue and page carries its attachments.
 
 Without --since the archive is a full snapshot; with it, only issues and
@@ -59,6 +62,8 @@ pages changed since then.`,
 		jqls, _ := cmd.Flags().GetStringArray("jql")
 		pages, _ := cmd.Flags().GetStringArray("page")
 		noBookmarks, _ := cmd.Flags().GetBool("no-bookmarks")
+		noSprint, _ := cmd.Flags().GetBool("no-active-sprint")
+		noMine, _ := cmd.Flags().GetBool("no-my-issues")
 		since, _ := cmd.Flags().GetString("since")
 
 		e := &mirrorsync.Exporter{}
@@ -74,6 +79,7 @@ pages changed since then.`,
 		}
 		_, err := e.Export(cmd.Context(), mirrorsync.ExportOptions{
 			Out: out, Boards: boards, JQL: jqls, Pages: pages, Bookmarks: !noBookmarks, Since: since, Log: os.Stderr,
+			ActiveSprints: !noSprint, MyIssues: !noMine,
 		})
 		return err
 	},
@@ -213,6 +219,8 @@ func init() {
 	f.StringArray("jql", nil, "Also export the issues of this JQL query (repeatable)")
 	f.StringArray("page", nil, "Also export this Confluence page and its descendants (repeatable)")
 	f.Bool("no-bookmarks", false, "Do not export the bookmarked items or the bookmark file")
+	f.Bool("no-active-sprint", false, "Do not export the issues of the active sprints (of the boards, else of JIRA_DEFAULT_PROJECT)")
+	f.Bool("no-my-issues", false, "Do not export your issues that are unresolved or resolved as anything but Done/Fixed")
 	f.String("since", "", "Only issues and pages changed since: RFC 3339, 2006-01-02 or a period (-7d, 12h)")
 
 	for _, c := range []*cobra.Command{mirrorImportCmd, mirrorStatusCmd, mirrorServeCmd} {
