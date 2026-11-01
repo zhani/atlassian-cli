@@ -1,5 +1,26 @@
 # Changelog
 
+## Unreleased
+
+### Offline mirror
+- Work with Jira and Confluence on a machine that can't reach them, from a snapshot exported on one that can.
+- `mirror export --out FILE.tar.gz` writes one archive with a `mirror.json` manifest. It contains:
+  - the issues of boards (`--board`, default `JIRA_DEFAULT_BOARD`) and queries (`--jql`), with board and sprint metadata;
+  - Confluence pages and their subtrees (`--page`);
+  - everything bookmarked, unless `--no-bookmarks`;
+  - every issue and page attachment, including the images pages show.
+  - `--since` (`-7d`, a date or RFC 3339) limits it to what changed.
+- `mirror import FILE` upserts the archive into the mirror directory (`ATLASSIAN_MIRROR`, default `~/.local/share/atlassian-cli/mirror`):
+  - each issue, page, board and space it carries replaces its old copy, attachments included;
+  - everything else is kept, as are user additions under `local/` and local bookmarks (the archive's bookmarks are merged in);
+  - `--prune` removes what a full snapshot no longer has.
+- `mirror status` shows how fresh the mirror is (`-o json` for scripts); `mirror serve` serves it over HTTP.
+- With a mirror active, every read command works offline with no token: search and list, the browsers and explorers, `confluence browse` with images, attachments, bookmarks and the MCP server. Writes fail with a read-only error.
+  - The mirror is active when `ATLASSIAN_MIRROR` is set, or automatically when no Jira/Confluence URL is configured and the default mirror exists.
+- Queries run locally:
+  - JQL: `AND`/`OR`/`NOT`, comparisons, `~` text search, relative dates, custom fields by name, sprint, epic and link functions, and `ORDER BY`;
+  - CQL: title, text, space, ancestor and labels.
+
 ## [v0.3.0](https://github.com/zhani/atlassian-cli/commits/v0.3.0) - 2026-11-01
 
 First release of the [zhani/atlassian-cli](https://github.com/zhani/atlassian-cli) fork. The module path is now `github.com/zhani/atlassian-cli`, so `go install github.com/zhani/atlassian-cli@latest` installs this fork.
