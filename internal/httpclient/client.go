@@ -50,7 +50,7 @@ func NewFromConfig(baseURL, email, token string) *Client {
 	} else {
 		authHeader = "Bearer " + token
 	}
-	hc := &http.Client{Timeout: 30 * time.Second}
+	hc := &http.Client{Timeout: 30 * time.Second, Transport: Transport()}
 	if mirror.IsMirrorURL(baseURL) {
 		hc.Transport = mirror.Transport() // offline mirror, served in-process
 	}

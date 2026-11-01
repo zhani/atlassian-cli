@@ -21,6 +21,9 @@
   - JQL: `AND`/`OR`/`NOT`, comparisons, `~` text search, relative dates, custom fields by name, sprint, epic and link functions, and `ORDER BY`;
   - CQL: title, text, space, ancestor and labels.
 
+### Connections
+- `ATLASSIAN_CA_FILE` adds CA certificates (PEM or DER) to trust for Jira, Confluence and page images, on top of the system ones. On macOS it also accepts private server certificates the system verifier rejects despite a trusted keychain CA.
+
 ## [v0.3.0](https://github.com/zhani/atlassian-cli/commits/v0.3.0) - 2026-11-01
 
 First release of the [zhani/atlassian-cli](https://github.com/zhani/atlassian-cli) fork. The module path is now `github.com/zhani/atlassian-cli`, so `go install github.com/zhani/atlassian-cli@latest` installs this fork.
