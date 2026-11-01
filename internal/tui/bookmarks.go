@@ -3,14 +3,15 @@ package tui
 import (
 	"context"
 	"fmt"
+	"sort"
 	"strings"
 
 	"github.com/charmbracelet/bubbles/help"
 	"github.com/charmbracelet/bubbles/key"
-	"github.com/charmbracelet/bubbles/table"
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/charmbracelet/x/ansi"
 	"github.com/putcho01/atlassian-cli/internal/bookmarks"
 )
 
@@ -46,17 +47,32 @@ var bmKeys = struct {
 	confirm: key.NewBinding(key.WithKeys("y"), key.WithHelp("y", "confirm")),
 }
 
+var (
+	styleRowSelected = lipgloss.NewStyle().Foreground(lipgloss.Color("0")).Background(lipgloss.Color("12"))
+	styleKind        = lipgloss.NewStyle().Foreground(lipgloss.Color("13"))
+)
+
+// bookmarkMatch is a fuzzy match of a bookmark: matched rune positions in
+// its kind, key/query and name columns.
+type bookmarkMatch struct {
+	score              int
+	kind, target, name []int
+}
+
 type bookmarkModel struct {
 	opts    BookmarkOptions
 	all     []bookmarks.Bookmark
-	visible []int
-	table   table.Model
+	visible []int // indices into all; ordered by match score while filtering
+	matches map[int]bookmarkMatch
+	cursor  int
+	offset  int
 
-	filter    textinput.Model
-	filtering bool
-	rename    textinput.Model
-	renaming  bool
-	deleting  bool
+	filter     textinput.Model
+	filtering  bool
+	filterFrom string // ID selected when the filter opened, for esc
+	rename     textinput.Model
+	renaming   bool
+	deleting   bool
 
 	help      help.Model
 	status    string
@@ -68,17 +84,9 @@ type bookmarkModel struct {
 }
 
 func newBookmarkModel(opts BookmarkOptions) bookmarkModel {
-	t := table.New(table.WithFocused(true), table.WithKeyMap(tableKeyMap()))
-	styles := table.DefaultStyles()
-	styles.Header = styles.Header.Bold(true).BorderStyle(lipgloss.NormalBorder()).BorderBottom(true).BorderForeground(lipgloss.Color("8"))
-	styles.Selected = styles.Selected.Foreground(lipgloss.Color("0")).Background(lipgloss.Color("12"))
-	t.SetStyles(styles)
-	f := textinput.New()
-	f.Prompt = "/"
 	r := textinput.New()
 	r.Prompt = " Name: "
-	m := bookmarkModel{opts: opts, table: t, filter: f, rename: r, help: help.New(), width: 100, height: 24}
-	m.layout() // the table needs its columns before rows
+	m := bookmarkModel{opts: opts, filter: newTreeFilterInput(), rename: r, help: help.New(), width: 100, height: 24}
 	m.reload(opts.Selected)
 	if opts.Message != "" {
 		m.setStatus(opts.Message, opts.MessageErr)
@@ -95,50 +103,108 @@ func (m *bookmarkModel) reload(selectID string) {
 	}
 	m.all = list
 	m.applyFilter()
-	for i, idx := range m.visible {
-		if m.all[idx].ID() == selectID {
-			m.table.SetCursor(i)
-		}
-	}
+	m.selectID(selectID)
 }
 
-func (m *bookmarkModel) applyFilter() {
-	q := strings.ToLower(m.filter.Value())
-	m.visible = m.visible[:0]
-	rows := []table.Row{}
-	for i, b := range m.all {
-		if q != "" && !strings.Contains(strings.ToLower(string(b.Kind)+" "+b.Label()+" "+b.Target()+" "+b.Title), q) {
-			continue
+func (m *bookmarkModel) selectID(id string) {
+	for i, idx := range m.visible {
+		if m.all[idx].ID() == id {
+			m.cursor = i
 		}
-		m.visible = append(m.visible, i)
-		rows = append(rows, table.Row{string(b.Kind), b.Target(), b.DisplayName()})
 	}
-	m.table.SetRows(rows)
-	if c := m.table.Cursor(); c >= len(rows) || c < 0 {
-		m.table.SetCursor(max(0, len(rows)-1))
+	m.keepCursorVisible()
+}
+
+// applyFilter shows every bookmark, or while filtering the fuzzy matches of
+// the query, best first.
+func (m *bookmarkModel) applyFilter() {
+	q := strings.TrimSpace(m.filter.Value())
+	m.visible = m.visible[:0]
+	m.matches = nil
+	if !m.filtering || q == "" {
+		for i := range m.all {
+			m.visible = append(m.visible, i)
+		}
+		m.cursor = min(m.cursor, max(0, len(m.visible)-1))
+		return
 	}
+	m.matches = map[int]bookmarkMatch{}
+	for i, b := range m.all {
+		if bm, ok := matchBookmark(q, b); ok {
+			m.matches[i] = bm
+			m.visible = append(m.visible, i)
+		}
+	}
+	sort.SliceStable(m.visible, func(a, b int) bool { return m.matches[m.visible[a]].score > m.matches[m.visible[b]].score })
+	m.cursor, m.offset = 0, 0
+}
+
+// matchBookmark matches the query against a bookmark's name, key or query,
+// kind and title together, so terms can match different columns.
+func matchBookmark(q string, b bookmarks.Bookmark) (bookmarkMatch, bool) {
+	name, target, kind := b.DisplayName(), b.Target(), string(b.Kind)
+	text := name + "\n" + target + "\n" + kind
+	if b.Title != "" && b.Title != name {
+		text += "\n" + b.Title // searchable, not shown
+	}
+	score, pos, ok := fuzzyMatch(q, text)
+	if !ok {
+		return bookmarkMatch{}, false
+	}
+	bm := bookmarkMatch{score: score}
+	nameEnd := len([]rune(name))
+	targetEnd := nameEnd + 1 + len([]rune(target))
+	kindEnd := targetEnd + 1 + len([]rune(kind))
+	for _, p := range pos {
+		switch {
+		case p < nameEnd:
+			bm.name = append(bm.name, p)
+		case p > nameEnd && p < targetEnd:
+			bm.target = append(bm.target, p-nameEnd-1)
+		case p > targetEnd && p < kindEnd:
+			bm.kind = append(bm.kind, p-targetEnd-1)
+		}
+	}
+	return bm, true
 }
 
 func (m bookmarkModel) selected() (bookmarks.Bookmark, bool) {
-	c := m.table.Cursor()
-	if c < 0 || c >= len(m.visible) {
+	if m.cursor < 0 || m.cursor >= len(m.visible) {
 		return bookmarks.Bookmark{}, false
 	}
-	return m.all[m.visible[c]], true
+	return m.all[m.visible[m.cursor]], true
 }
 
 func (m *bookmarkModel) setStatus(s string, isErr bool) { m.status, m.statusErr = s, isErr }
 
 func (m *bookmarkModel) layout() {
-	targetW := max(12, (m.width-14)*35/100)
-	m.table.SetColumns([]table.Column{
-		{Title: "Kind", Width: 8},
-		{Title: "Key / query", Width: targetW},
-		{Title: "Name", Width: max(10, m.width-targetW-16)},
-	})
-	m.table.SetWidth(m.width)
-	m.table.SetHeight(max(3, m.height-1-lipgloss.Height(m.footerView())))
 	m.help.Width = m.width
+	m.keepCursorVisible()
+}
+
+// listRows is the number of bookmarks that fit on screen.
+func (m bookmarkModel) listRows() int {
+	rows := m.height - 3 - lipgloss.Height(m.footerView()) // title, header, rule
+	if m.filtering {
+		rows -= filterPopupHeight
+	}
+	return max(1, rows)
+}
+
+func (m *bookmarkModel) keepCursorVisible() {
+	rows := m.listRows()
+	if m.cursor < m.offset {
+		m.offset = m.cursor
+	}
+	if m.cursor >= m.offset+rows {
+		m.offset = m.cursor - rows + 1
+	}
+	m.offset = max(0, min(m.offset, len(m.visible)-1))
+}
+
+func (m *bookmarkModel) move(to int) {
+	m.cursor = max(0, min(len(m.visible)-1, to))
+	m.keepCursorVisible()
 }
 
 func (m bookmarkModel) Init() tea.Cmd { return nil }
@@ -161,21 +227,7 @@ func (m bookmarkModel) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, tea.Quit
 	}
 	if m.filtering {
-		switch msg.Type {
-		case tea.KeyEsc:
-			m.filter.SetValue("")
-			fallthrough
-		case tea.KeyEnter:
-			m.filtering = false
-			m.filter.Blur()
-			m.applyFilter()
-			m.layout()
-			return m, nil
-		}
-		var cmd tea.Cmd
-		m.filter, cmd = m.filter.Update(msg)
-		m.applyFilter()
-		return m, cmd
+		return m.handleFilterKey(msg)
 	}
 	if m.renaming {
 		switch msg.Type {
@@ -228,14 +280,22 @@ func (m bookmarkModel) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	case key.Matches(msg, keys.filter):
 		m.filtering = true
+		m.filterFrom = b.ID()
+		m.filter.SetValue("")
 		m.layout()
 		return m, m.filter.Focus()
-	case key.Matches(msg, keys.back):
-		if m.filter.Value() != "" {
-			m.filter.SetValue("")
-			m.applyFilter()
-		}
-		return m, nil
+	case key.Matches(msg, keys.up):
+		m.move(m.cursor - 1)
+	case key.Matches(msg, keys.down):
+		m.move(m.cursor + 1)
+	case key.Matches(msg, keys.top):
+		m.move(0)
+	case key.Matches(msg, keys.bottom):
+		m.move(len(m.visible) - 1)
+	case key.Matches(msg, keys.pageUp):
+		m.move(m.cursor - m.listRows())
+	case key.Matches(msg, keys.pageDown):
+		m.move(m.cursor + m.listRows())
 	case !ok:
 	case key.Matches(msg, bmKeys.open):
 		m.chosen = &b
@@ -257,7 +317,6 @@ func (m bookmarkModel) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				m.setStatus(done, false)
 			}
 		}
-		return m, nil
 	case key.Matches(msg, keys.copyKey):
 		if m.opts.Copy != nil {
 			if err := m.opts.Copy(b.Target()); err != nil {
@@ -266,11 +325,9 @@ func (m bookmarkModel) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				m.setStatus("Copied "+b.Target(), false)
 			}
 		}
-		return m, nil
 	case key.Matches(msg, bmKeys.del):
 		m.deleting = true
 		m.setStatus(fmt.Sprintf("Delete bookmark %q? y to confirm", b.Label()), true)
-		return m, nil
 	case key.Matches(msg, bmKeys.rename):
 		m.renaming = true
 		m.rename.SetValue(b.Name)
@@ -278,8 +335,50 @@ func (m bookmarkModel) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.layout()
 		return m, m.rename.Focus()
 	}
+	return m, nil
+}
+
+// handleFilterKey handles keys while the fuzzy filter is open: typing
+// narrows the list live, the arrows (ctrl+n/ctrl+p, tab) move, enter opens
+// the selected bookmark and esc returns to the full list.
+func (m bookmarkModel) handleFilterKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch {
+	case key.Matches(msg, filterKeys.cancel):
+		m.filtering = false
+		m.filter.Blur()
+		m.filter.SetValue("")
+		m.applyFilter()
+		m.selectID(m.filterFrom)
+		m.layout()
+		return m, nil
+	case key.Matches(msg, filterKeys.accept):
+		b, ok := m.selected()
+		if !ok {
+			return m, nil
+		}
+		m.chosen = &b
+		m.quitting = true
+		return m, tea.Quit
+	case key.Matches(msg, filterKeys.prev):
+		if len(m.visible) > 0 {
+			m.move((m.cursor - 1 + len(m.visible)) % len(m.visible))
+		}
+		return m, nil
+	case key.Matches(msg, filterKeys.next):
+		if len(m.visible) > 0 {
+			m.move((m.cursor + 1) % len(m.visible))
+		}
+		return m, nil
+	}
+	prev := m.filter.Value()
 	var cmd tea.Cmd
-	m.table, cmd = m.table.Update(msg)
+	m.filter, cmd = m.filter.Update(msg)
+	if m.filter.Value() != prev {
+		m.applyFilter()
+		if strings.TrimSpace(m.filter.Value()) == "" {
+			m.selectID(m.filterFrom)
+		}
+	}
 	return m, cmd
 }
 
@@ -291,20 +390,72 @@ func (m bookmarkModel) View() string {
 	if len(m.visible) != len(m.all) {
 		title = styleTitle.Render(fmt.Sprintf(" Bookmarks (%d of %d)", len(m.visible), len(m.all)))
 	}
-	body := m.table.View()
-	if len(m.all) == 0 {
-		body = lipgloss.NewStyle().Height(m.table.Height()).Render(styleDim.Render(
-			"\n No bookmarks yet. Press B in the issue, explorer or page browsers,\n" +
-				" S in an issue list to save its query, or use `atlassian-cli bookmark add`."))
+	rows := m.listRows()
+	var body string
+	switch {
+	case len(m.all) == 0:
+		body = styleDim.Render("\n No bookmarks yet. Press B in the issue, explorer or page browsers,\n" +
+			" S in an issue list to save its query, or use `atlassian-cli bookmark add`.")
+	default:
+		body = m.listView(rows)
 	}
-	return lipgloss.JoinVertical(lipgloss.Left, title, body, m.footerView())
+	body = lipgloss.NewStyle().Height(rows + 2).MaxHeight(rows + 2).Render(body)
+	parts := []string{title, body}
+	if m.filtering {
+		parts = append(parts, filterBox(m.filter, fmt.Sprintf("%d/%d", len(m.visible), len(m.all)), m.width))
+	}
+	return lipgloss.JoinVertical(lipgloss.Left, append(parts, m.footerView())...)
+}
+
+// column widths: kind, key/query; the name takes the rest.
+func (m bookmarkModel) columns() (kindW, targetW, nameW int) {
+	kindW = 8
+	targetW = max(12, (m.width-14)*35/100)
+	nameW = max(10, m.width-kindW-targetW-4)
+	return kindW, targetW, nameW
+}
+
+func (m bookmarkModel) listView(rows int) string {
+	kindW, targetW, nameW := m.columns()
+	header := fmt.Sprintf(" %-*s %-*s %s", kindW, "Kind", targetW, "Key / query", "Name")
+	var sb strings.Builder
+	sb.WriteString(lipgloss.NewStyle().Bold(true).Render(header) + "\n")
+	sb.WriteString(styleDim.Render(strings.Repeat("─", max(10, m.width))) + "\n")
+	if len(m.visible) == 0 {
+		sb.WriteString(styleDim.Render(" No bookmark matches"))
+		return sb.String()
+	}
+	end := min(len(m.visible), m.offset+rows)
+	for i := m.offset; i < end; i++ {
+		idx := m.visible[i]
+		b := m.all[idx]
+		match := m.matches[idx]
+		base, kindStyle := lipgloss.NewStyle(), styleKind
+		if i == m.cursor {
+			base, kindStyle = styleRowSelected, styleRowSelected
+		}
+		line := base.Render(" ") +
+			cell(string(b.Kind), match.kind, kindW, kindStyle) + base.Render(" ") +
+			cell(b.Target(), match.target, targetW, base) + base.Render(" ") +
+			cell(b.DisplayName(), match.name, nameW, base)
+		sb.WriteString(line + "\n")
+	}
+	return strings.TrimRight(sb.String(), "\n")
+}
+
+// cell renders text cut and padded to width, with the matched runes
+// highlighted.
+func cell(text string, pos []int, width int, base lipgloss.Style) string {
+	s := highlight("", text, nodeMatch{pos: pos}, width, base)
+	if pad := width - ansi.StringWidth(s); pad > 0 {
+		s += base.Render(strings.Repeat(" ", pad))
+	}
+	return s
 }
 
 func (m bookmarkModel) footerView() string {
 	status := ""
 	switch {
-	case m.filtering:
-		status = m.filter.View()
 	case m.renaming:
 		status = m.rename.View()
 	case m.status != "":
@@ -313,18 +464,20 @@ func (m bookmarkModel) footerView() string {
 			style = styleErr
 		}
 		status = style.Render(" " + truncate(m.status, max(10, m.width-2)))
-	case m.filter.Value() != "":
-		status = styleDim.Render(" filter: " + m.filter.Value() + "  (esc to clear)")
 	}
 	return status + "\n " + m.help.View(m.helpKeys())
 }
 
 func (m bookmarkModel) helpKeys() helpKeys {
+	if m.filtering {
+		b := []key.Binding{filterKeys.next, filterKeys.prev, bmKeys.open, filterKeys.cancel}
+		return helpKeys{short: b, full: [][]key.Binding{b}}
+	}
 	short := []key.Binding{bmKeys.open, bmKeys.web, bmKeys.rename, bmKeys.del, keys.filter, keys.help, keys.quit}
 	return helpKeys{short: short, full: [][]key.Binding{
 		{keys.up, keys.down, keys.pageUp, keys.pageDown, keys.top, keys.bottom},
 		{bmKeys.open, bmKeys.web, keys.copyURL, keys.copyKey, bmKeys.rename, bmKeys.del},
-		{keys.filter, keys.back, keys.help, keys.quit},
+		{keys.filter, keys.help, keys.quit},
 	}}
 }
 

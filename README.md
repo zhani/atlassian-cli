@@ -327,7 +327,9 @@ In the bookmark browser `enter` opens a bookmark in its view: an issue in the
 issue view, a query in the issue browser, a feature, epic or sprint as its
 issues, a page in the page tree. Quitting that view returns to the bookmarks.
 `o` opens the bookmark on the web, `c` / `ctrl+k` copy its link / key, `r`
-renames, `d` deletes, `/` filters.
+renames, `d` deletes. `/` fuzzy-finds bookmarks (fzf-style, across kind,
+key/query, name and title; best match first): `↓`/`↑` or `ctrl+n`/`ctrl+p` move,
+`enter` opens the selected bookmark, `esc` goes back to the full list.
 
 Press `B` in the issue browser, on a feature/epic/sprint in the explorers or on
 a page in `confluence browse` to bookmark it (`B` again removes it); `S` in an

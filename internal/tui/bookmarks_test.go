@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/x/ansi"
 	"github.com/putcho01/atlassian-cli/internal/bookmarks"
 )
 
@@ -221,16 +222,66 @@ func TestBookmarkBrowserDeleteRenameFilter(t *testing.T) {
 		t.Errorf("stored %+v", list)
 	}
 
-	m = pressBM(m, "/", "r", "u", "n", "enter")
-	if len(m.visible) != 1 {
+	m = pressBM(m, "/", "r", "u", "n", "b")
+	if len(m.visible) != 1 || !m.filtering {
 		t.Errorf("filter matched %d", len(m.visible))
 	}
 	if b, _ := m.selected(); b.Key != "5" {
 		t.Errorf("filtered selection %+v", b)
 	}
 	m = pressBM(m, "esc")
-	if len(m.visible) != 2 {
-		t.Errorf("esc did not clear the filter")
+	if len(m.visible) != 2 || m.filtering {
+		t.Errorf("esc did not close the filter")
+	}
+}
+
+func TestBookmarkBrowserFuzzyFilter(t *testing.T) {
+	t.Parallel()
+	m := newBookmarkModel(BookmarkOptions{Store: seededStore(t)})
+	m = pressBM(m, "down") // Mine
+	m = pressBM(m, "/", "p", "a", "g", "e")
+	// "page" matches the page's kind best; other bookmarks may match across
+	// columns but rank lower.
+	if b, _ := m.selected(); b.Kind != "page" {
+		t.Errorf("best match %+v", b)
+	}
+	if bm := m.matches[m.visible[0]]; len(bm.kind) != 4 {
+		t.Errorf("kind highlight %v", bm)
+	}
+	view := ansi.Strip(m.View())
+	if !strings.Contains(view, "/ page") || !strings.Contains(view, "/3") {
+		t.Errorf("filter box missing:\n%s", view)
+	}
+	// q and d are typed, not actions.
+	m = pressBM(m, "backspace", "backspace", "backspace", "backspace", "f", "i", "x", "q")
+	if m.quitting || m.filter.Value() != "fixq" {
+		t.Errorf("value %q quitting %v", m.filter.Value(), m.quitting)
+	}
+	m = pressBM(m, "backspace", "down", "up")
+	if b, _ := m.selected(); b.Key != "A-1" {
+		t.Errorf("selected %+v", b)
+	}
+	// esc restores the selection from before the filter.
+	m = pressBM(m, "esc")
+	if b, _ := m.selected(); b.Name != "Mine" {
+		t.Errorf("after esc %+v", b)
+	}
+	// enter opens the match directly.
+	m = pressBM(m, "/", "r", "u", "n", "b", "o", "o", "k", "enter")
+	if m.chosen == nil || m.chosen.Key != "5" || !m.quitting {
+		t.Errorf("chosen %+v", m.chosen)
+	}
+}
+
+func TestMatchBookmarkColumns(t *testing.T) {
+	t.Parallel()
+	b := bookmarks.Bookmark{Kind: bookmarks.Epic, Key: "PAY-7", Title: "Payments"}
+	bm, ok := matchBookmark("epic pay", b)
+	if !ok || len(bm.kind) != 4 || len(bm.name)+len(bm.target) < 3 {
+		t.Errorf("match %+v %v", bm, ok)
+	}
+	if _, ok := matchBookmark("zzz", b); ok {
+		t.Error("zzz matched")
 	}
 }
 
