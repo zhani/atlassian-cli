@@ -8,6 +8,8 @@
   - the issues of boards (`--board`, default `JIRA_DEFAULT_BOARD`) and queries (`--jql`), with board and sprint metadata;
   - Confluence pages and their subtrees (`--page`);
   - everything bookmarked, unless `--no-bookmarks`;
+  - the issues of the active sprints, if any (of the boards, else of `JIRA_DEFAULT_PROJECT`), unless `--no-active-sprint`;
+  - your issues that are unresolved or resolved as anything but Done/Fixed, unless `--no-my-issues`;
   - every issue and page attachment, including the images pages show.
   - `--since` (`-7d`, a date or RFC 3339) limits it to what changed.
 - `mirror import FILE` upserts the archive into the mirror directory (`ATLASSIAN_MIRROR`, default `~/.local/share/atlassian-cli/mirror`):

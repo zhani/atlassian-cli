@@ -33,8 +33,14 @@ type ExportOptions struct {
 	JQL       []string // extra queries
 	Pages     []string // Confluence pages, exported with all descendants
 	Bookmarks bool     // also everything bookmarked, and the bookmark file
-	Since     string   // only issues/pages changed since (empty: full snapshot)
-	Log       io.Writer
+	// ActiveSprints also exports the issues of the active sprints of the
+	// exported boards (else of the default project), when there are any.
+	ActiveSprints bool
+	// MyIssues also exports the issues assigned to the exporting user that
+	// are unresolved or resolved as anything but Done/Fixed.
+	MyIssues bool
+	Since    string // only issues/pages changed since (empty: full snapshot)
+	Log      io.Writer
 }
 
 // Exporter talks to the live servers. Jira or Confluence may be nil when
@@ -240,8 +246,9 @@ func (e *Exporter) exportJira(ctx context.Context, boards []int, marks []bookmar
 	}
 
 	queries := append([]string{}, e.opts.JQL...)
+	var active []int
 	for _, id := range boards {
-		jql, err := e.exportBoard(ctx, id)
+		jql, sprints, err := e.exportBoard(ctx, id)
 		if err != nil {
 			e.warn("board %d: %v", id, err)
 			continue
@@ -249,6 +256,20 @@ func (e *Exporter) exportJira(ctx context.Context, boards []int, marks []bookmar
 		if jql != "" {
 			queries = append(queries, jql)
 		}
+		active = append(active, activeSprintIDs(sprints)...)
+	}
+	if e.opts.ActiveSprints {
+		if q := activeSprintJQL(active, len(boards) > 0, e.JiraCfg.DefaultProject); q != "" {
+			e.logf("active sprints: %s", q)
+			queries = append(queries, q)
+		} else {
+			e.logf("active sprints: none")
+		}
+	}
+	if e.opts.MyIssues {
+		q := myIssuesJQL(e.resolutionNames(ctx))
+		e.logf("my issues: %s", q)
+		queries = append(queries, q)
 	}
 
 	var keys []string
@@ -315,11 +336,79 @@ func (e *Exporter) exportJira(ctx context.Context, boards []int, marks []bookmar
 	return e.writeFile("jira/names.json", e.names)
 }
 
-func (e *Exporter) exportBoard(ctx context.Context, id int) (string, error) {
+// activeSprintIDs picks the sprints in state "active" (there may be none).
+func activeSprintIDs(sprints []map[string]any) []int {
+	var ids []int
+	for _, sp := range sprints {
+		if st, _ := sp["state"].(string); strings.EqualFold(st, "active") {
+			if id, err := strconv.Atoi(fmt.Sprint(sp["id"])); err == nil {
+				ids = append(ids, id)
+			}
+		}
+	}
+	return ids
+}
+
+// activeSprintJQL selects the active sprints' issues: those of the exported
+// boards, or, without boards, the default project's open (not future) ones.
+// Empty when there is nothing to export.
+func activeSprintJQL(ids []int, haveBoards bool, project string) string {
+	if len(ids) > 0 {
+		parts := make([]string, len(ids))
+		for i, id := range ids {
+			parts[i] = strconv.Itoa(id)
+		}
+		return "sprint in (" + strings.Join(parts, ", ") + ")"
+	}
+	if !haveBoards && project != "" {
+		return fmt.Sprintf("project = %q AND sprint in openSprints() AND sprint not in futureSprints()", project)
+	}
+	return ""
+}
+
+// myIssuesJQL selects the exporting user's issues that are not resolved as
+// Done or Fixed. JQL's NOT IN skips empty values, so unresolved issues need
+// their own clause; only resolutions the server has may be named (Jira
+// rejects the query for an unknown value).
+func myIssuesJQL(resolutions []string) string {
+	var exclude []string
+	for _, want := range []string{"Done", "Fixed"} {
+		for _, r := range resolutions {
+			if strings.EqualFold(r, want) {
+				exclude = append(exclude, strconv.Quote(r))
+				break
+			}
+		}
+	}
+	if len(exclude) == 0 {
+		return "assignee = currentUser()"
+	}
+	return "assignee = currentUser() AND (resolution IS EMPTY OR resolution NOT IN (" +
+		strings.Join(exclude, ", ") + "))"
+}
+
+// resolutionNames lists the server's resolutions; on failure it assumes
+// Done and Fixed exist.
+func (e *Exporter) resolutionNames(ctx context.Context) []string {
+	var rs []struct {
+		Name string `json:"name"`
+	}
+	if err := e.get(ctx, "/rest/api/2/resolution", nil, &rs); err != nil {
+		e.warn("resolutions: %v", err)
+		return []string{"Done", "Fixed"}
+	}
+	names := make([]string, len(rs))
+	for i, r := range rs {
+		names[i] = r.Name
+	}
+	return names
+}
+
+func (e *Exporter) exportBoard(ctx context.Context, id int) (string, []map[string]any, error) {
 	sid := strconv.Itoa(id)
 	var board map[string]any
 	if err := e.get(ctx, "/rest/agile/1.0/board/"+sid, nil, &board); err != nil {
-		return "", err
+		return "", nil, err
 	}
 	var sprints []map[string]any
 	if t, _ := board["type"].(string); t == "scrum" {
@@ -359,7 +448,7 @@ func (e *Exporter) exportBoard(ctx context.Context, id int) (string, error) {
 	if jql == "" { // fall back to the board's own issue listing
 		keys, err := e.boardIssueKeys(ctx, sid)
 		if err != nil {
-			return "", err
+			return "", nil, err
 		}
 		for _, k := range keys {
 			if err := e.exportKey(ctx, k); err != nil {
@@ -368,7 +457,7 @@ func (e *Exporter) exportBoard(ctx context.Context, id int) (string, error) {
 		}
 	}
 	e.logf("board %d %q: %d sprints", id, board["name"], len(sprints))
-	return jql, e.writeFile("jira/boards/"+sid+".json", map[string]any{"board": board, "sprints": sprints, "jql": jql})
+	return jql, sprints, e.writeFile("jira/boards/"+sid+".json", map[string]any{"board": board, "sprints": sprints, "jql": jql})
 }
 
 func (e *Exporter) boardIssueKeys(ctx context.Context, sid string) ([]string, error) {

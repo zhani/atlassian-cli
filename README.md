@@ -503,8 +503,11 @@ atlassian-cli mirror export --out delta.tar.gz --since -7d       # only issues/p
 
 What goes in: the issues of each board's filter (and its sprints), of each
 `--jql` query and of every bookmark (issues, queries, features with their
-linked issues, epics with their issues, sprints), the subtasks and parents
-of those issues, and each `--page` / bookmarked page with all its
+linked issues, epics with their issues, sprints), the issues of the active
+sprints (of the exported boards, else of `JIRA_DEFAULT_PROJECT`; skipped when
+none is active; `--no-active-sprint` turns it off), your issues that are
+unresolved or resolved as anything but Done/Fixed (`--no-my-issues` turns it
+off), the subtasks and parents of those issues, and each `--page` / bookmarked page with all its
 descendants. Issues keep their rendered descriptions, all comments and their
 attachments; pages keep their attachments and the images they link on the
 same site. The bookmark file and the field names come along too.
