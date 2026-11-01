@@ -348,7 +348,7 @@ func highlight(prefix, title string, match nodeMatch, width int, base lipgloss.S
 	for i, r := range runes {
 		if hit[i] && r != '…' {
 			flush()
-			sb.WriteString(styleMatch.Inherit(base).Render(string(r)))
+			sb.WriteString(matchStyle(base).Render(string(r)))
 			continue
 		}
 		run = append(run, r)
@@ -357,7 +357,11 @@ func highlight(prefix, title string, match nodeMatch, width int, base lipgloss.S
 	return sb.String()
 }
 
-var styleMatch = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("11")).Underline(true)
+// matchStyle emphasises matched characters on top of a row's style,
+// keeping its background (e.g. the selected row's).
+func matchStyle(base lipgloss.Style) lipgloss.Style {
+	return base.Bold(true).Underline(true).Foreground(lipgloss.Color("11"))
+}
 
 // filterPopup renders the filter box shown under the tree.
 func (m treeModel) filterPopup(width int) string {
@@ -368,8 +372,13 @@ func (m treeModel) filterPopup(width int) string {
 	if len(m.spaceLoading) > 0 {
 		count = "loading… " + count
 	}
-	m.filter.Width = max(4, width-lipgloss.Width(count)-6)
-	line := m.filter.View()
+	return filterBox(m.filter, count, width)
+}
+
+// filterBox renders a fuzzy filter input with a match count in a box.
+func filterBox(input textinput.Model, count string, width int) string {
+	input.Width = max(4, width-lipgloss.Width(count)-6)
+	line := input.View()
 	gap := max(1, width-2-lipgloss.Width(line)-lipgloss.Width(count))
 	return lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).BorderForeground(lipgloss.Color("11")).Width(width - 2).
 		Render(line + strings.Repeat(" ", gap) + styleDim.Render(count))
