@@ -5,7 +5,7 @@ import (
 	"strings"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
-	"github.com/putcho01/atlassian-cli/internal/bookmarks"
+	"github.com/zhani/atlassian-cli/internal/bookmarks"
 )
 
 type listBookmarksInput struct {

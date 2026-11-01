@@ -1,18 +1,19 @@
 package cmd
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"strings"
 
 	"github.com/mattn/go-isatty"
-	"github.com/putcho01/atlassian-cli/internal/bookmarks"
-	"github.com/putcho01/atlassian-cli/internal/browser"
-	"github.com/putcho01/atlassian-cli/internal/config"
-	"github.com/putcho01/atlassian-cli/internal/formatter"
-	"github.com/putcho01/atlassian-cli/internal/jira"
-	"github.com/putcho01/atlassian-cli/internal/tui"
 	"github.com/spf13/cobra"
+	"github.com/zhani/atlassian-cli/internal/bookmarks"
+	"github.com/zhani/atlassian-cli/internal/browser"
+	"github.com/zhani/atlassian-cli/internal/config"
+	"github.com/zhani/atlassian-cli/internal/formatter"
+	"github.com/zhani/atlassian-cli/internal/jira"
+	"github.com/zhani/atlassian-cli/internal/tui"
 )
 
 // addIssueListFlags registers the output flags shared by commands that list
@@ -72,11 +73,17 @@ func showIssuesWith(cmd *cobra.Command, client *jira.Client, jql string, adjust 
 // browserOptions returns the issue browser options shared by all views.
 func browserOptions(client *jira.Client, limit int) tui.Options {
 	opts := tui.Options{Source: client, Limit: limit, OpenURL: browser.Open, Copy: tui.CopyToClipboard}
-	if cfg, err := config.LoadJiraConfig(); err == nil {
+	cfg, err := config.LoadJiraConfig()
+	if err == nil {
 		opts.DetailFields = cfg.DetailFields
+	} else {
+		cfg = &config.AtlassianConfig{}
 	}
 	if store, err := bookmarks.Open(); err == nil {
 		opts.Bookmarks = store
+		opts.ResolveBookmark = func(ctx context.Context, b bookmarks.Bookmark) (tui.BookmarkView, error) {
+			return bookmarkView(ctx, client, cfg, b)
+		}
 	}
 	return opts
 }

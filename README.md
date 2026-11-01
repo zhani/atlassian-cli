@@ -11,17 +11,14 @@
 <br />
 
 <div align="center">
-  <a href="https://github.com/putcho01/atlassian-cli/releases">
-    <img src="https://img.shields.io/github/v/release/putcho01/atlassian-cli?color=3670A0" alt="Release">
+  <a href="https://github.com/zhani/atlassian-cli/releases">
+    <img src="https://img.shields.io/github/v/release/zhani/atlassian-cli?color=3670A0" alt="Release">
   </a>
-  <a href="https://github.com/putcho01/atlassian-cli/commits/main">
-    <img src="https://img.shields.io/github/commit-activity/m/putcho01/atlassian-cli" alt="Commit activity">
+  <a href="https://github.com/zhani/atlassian-cli/commits/main">
+    <img src="https://img.shields.io/github/commit-activity/m/zhani/atlassian-cli" alt="Commit activity">
   </a>
   <a href="https://opensource.org/licenses/MIT">
     <img src="https://img.shields.io/badge/License-MIT-yellow.svg?color=3670A0" alt="License: MIT">
-  </a>
-  <a href="https://pkg.go.dev/github.com/putcho01/atlassian-cli">
-    <img src="https://pkg.go.dev/badge/github.com/putcho01/atlassian-cli.svg" alt="Go Reference">
   </a>
 </div>
 
@@ -29,27 +26,49 @@
 
 ## Installation
 
-### go install (recommended)
+This is a fork of [putcho01/atlassian-cli](https://github.com/putcho01/atlassian-cli)
+with an interactive TUI (issue browser, explorers, Confluence page tree,
+bookmarks), more Jira/Confluence commands and MCP tools.
 
-Requires Go 1.21+:
+### go install
+
+Requires Go 1.25+:
 
 ```bash
-go install github.com/putcho01/atlassian-cli@latest
+go install github.com/zhani/atlassian-cli@latest
 ```
 
-> If `$GOPATH/bin` is not in your `$PATH`, add the following to your shell config (`~/.zshrc`, etc.):
->
-> ```bash
-> export PATH="$PATH:$(go env GOPATH)/bin"
-> ```
+> If `$GOPATH/bin` is not in your `$PATH`, add it to your shell config:
+> `export PATH="$PATH:$(go env GOPATH)/bin"`
+
+### Prebuilt binaries
+
+Download an archive for Linux, macOS or Windows (amd64/arm64) from the
+[releases](https://github.com/zhani/atlassian-cli/releases), unpack it and put
+`atlassian-cli` on your `PATH`. The binaries are static and need nothing else.
 
 ### From source
 
 ```bash
-git clone https://github.com/putcho01/atlassian-cli.git
+git clone https://github.com/zhani/atlassian-cli.git
 cd atlassian-cli
-go build -o atlassian-cli .
+go build -o atlassian-cli .     # or: go install .  (to $(go env GOPATH)/bin)
 ```
+
+### Building without internet access
+
+On a machine with access, bundle the dependencies with the source and copy the
+archive over:
+
+```bash
+go mod vendor                                    # dependencies into ./vendor
+tar czf atlassian-cli-src.tgz --exclude=.git .
+```
+
+On the offline machine, `go build -o atlassian-cli .` then uses `./vendor`
+(Go 1.25+ must be installed there; an older Go would try to download a newer
+toolchain). Alternatively cross-compile a binary and copy just that:
+`CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -ldflags="-s -w" -o atlassian-cli .`
 
 ## Quick Start
 
@@ -101,14 +120,6 @@ Used with Atlassian Cloud (`*.atlassian.net`). Authenticates via Basic auth usin
 | `JIRA_URL` | Jira Cloud URL (e.g. `https://your-domain.atlassian.net`) |
 | `JIRA_EMAIL` | Your Atlassian account email address |
 | `JIRA_API_TOKEN` | [API Token](https://id.atlassian.com/manage-profile/security/api-tokens) |
-| `JIRA_DEFAULT_PROJECT` | Default project key used when `--project` is omitted (optional) |
-| `JIRA_DEFAULT_BOARD` | Agile board ID for `jira sprint` (optional) |
-| `JIRA_FEATURE_TYPE` | Issue type of features for `jira feature` (default `New Feature`) |
-| `JIRA_FEATURE_LINK_TYPES` | Comma-separated link phrases from a feature to its issues (default `is implemented by,gets values from`) |
-| `JIRA_EPIC_LINK_FIELD` | JQL field linking issues to epics (default `parent` on Cloud, `Epic Link` on Server/DC) |
-| `JIRA_DETAIL_FIELDS` | Comma-separated custom fields (names or IDs) shown in the TUI issue view, in this order (default: all non-empty) |
-| `ATLASSIAN_IMAGES` | How the Confluence browser draws images: `auto` (default), `kitty`, `iterm`, `sixel`, `blocks` or `off` |
-| `ATLASSIAN_BOOKMARKS` | Bookmark file (default `~/.config/atlassian-cli/bookmarks.yaml`) |
 | `CONFLUENCE_URL` | Confluence Cloud URL (e.g. `https://your-domain.atlassian.net/wiki`) |
 | `CONFLUENCE_EMAIL` | Your Atlassian account email address |
 | `CONFLUENCE_API_TOKEN` | API Token |
@@ -121,7 +132,6 @@ Used with self-hosted Jira/Confluence Server/DC. Authenticates via Bearer auth u
 |----------|-------------|
 | `JIRA_URL` | Jira base URL (e.g. `https://jira.example.com`) |
 | `JIRA_PERSONAL_TOKEN` | Personal Access Token |
-| `JIRA_DEFAULT_PROJECT` | Default project key used when `--project` is omitted (optional) |
 | `CONFLUENCE_URL` | Confluence base URL |
 | `CONFLUENCE_PERSONAL_TOKEN` | Personal Access Token |
 
@@ -142,6 +152,23 @@ On Server/DC, Confluence runs on its own host, so `CONFLUENCE_URL` is still requ
 
 Only the variables for the service you use are required. For example, if you only use Jira, you don't need to set the Confluence variables.
 
+### Optional settings
+
+These apply to Cloud and Server/DC alike.
+
+| Variable | Description |
+|----------|-------------|
+| `JIRA_DEFAULT_PROJECT` | Default project for `--project` / `-p` (`-p ""` searches all projects) |
+| `JIRA_DEFAULT_BOARD` | Agile board ID for `jira sprint` |
+| `JIRA_FEATURE_TYPE` | Issue type of features for `jira feature` (default `New Feature`) |
+| `JIRA_FEATURE_LINK_TYPES` | Comma-separated link phrases from a feature to its issues (default `is implemented by,gets values from`) |
+| `JIRA_EPIC_LINK_FIELD` | JQL field linking issues to epics (default `parent` on Cloud, `Epic Link` on Server/DC) |
+| `JIRA_DETAIL_FIELDS` | Comma-separated custom fields (names or IDs) shown in the TUI issue view, in this order (default: all non-empty) |
+| `ATLASSIAN_BOOKMARKS` | Bookmark file (default `~/.config/atlassian-cli/bookmarks.yaml`) |
+| `ATLASSIAN_IMAGES` | How the Confluence browser draws images: `auto` (default), `kitty`, `iterm`, `sixel`, `blocks` or `off` |
+| `GLAMOUR_STYLE` | Colour theme of rendered issues and pages (`dark`, `light`, `dracula`, …; default from the terminal background) |
+| `VISUAL` / `EDITOR` | Editor for `-e`, `confluence page edit` and `bookmark edit` (default `vi`) |
+
 ## Commands
 
 ### Jira
@@ -149,6 +176,7 @@ Only the variables for the service you use are required. For example, if you onl
 ```bash
 # Authentication
 atlassian-cli jira myself                # Show authenticated user
+atlassian-cli version                    # Print the version
 
 # Issues
 atlassian-cli jira issue get PROJ-123    # Get issue (includes description)
@@ -276,15 +304,16 @@ a resolution).
 
 ### Interactive issue browser
 
-`jira issue search` opens an interactive browser when run in a terminal without
-an explicit `-o`/`--output` (use `--plain` to get the plain table, or `-i` to
-force the browser). Piped output is never interactive.
+`jira issue search`, `jira issue list`, the explorers and `bookmark open` show
+issues in an interactive browser when run in a terminal without an explicit
+`-o`/`--output` (use `--plain` to get the plain table, or `-i` to force the
+browser). Piped output is never interactive.
 
 | Key | Action |
 |-----|--------|
 | `↑`/`↓`, `j`/`k` | Move |
 | `g` / `G` | Top / bottom |
-| `ctrl+f` / `ctrl+b` | Page down / up |
+| `ctrl+f` / `ctrl+b`, `PgDn` / `PgUp` | Page down / up |
 | `enter` / `v` | View issue (description, custom fields, links, subtasks, latest comments) |
 | `esc` | Back / clear filter |
 | `/` | Fuzzy-find the loaded issues (fzf-style across all columns, best first): `↓`/`↑` or `ctrl+n`/`ctrl+p` move, `enter` opens the issue and keeps the list filtered, `esc` clears |
@@ -292,7 +321,8 @@ force the browser). Piped output is never interactive.
 | `o` | Open in browser |
 | `c` / `ctrl+k` | Copy issue URL / key to the clipboard |
 | `ctrl+r` / `F5` | Refresh |
-| `B` | Bookmark the issue (again: remove the bookmark) |
+| `b` | Bookmark the issue (again: remove the bookmark) |
+| `B` | Bookmarks: pick a bookmarked issue, query, feature, epic or sprint to show here |
 | `S` | Bookmark the list's query |
 | `?` | Toggle full help |
 | `q` | Quit |
@@ -321,6 +351,7 @@ atlassian-cli bookmark open "My open work" # by number, name, key or ID; --web f
 atlassian-cli bookmark rename 3 "Payments"
 atlassian-cli bookmark remove 3
 atlassian-cli bookmark edit                # the YAML file in $EDITOR
+atlassian-cli bookmark path                # where the file is
 ```
 
 In the bookmark browser `enter` opens a bookmark in its view: an issue in the
@@ -331,11 +362,34 @@ renames, `d` deletes. `/` fuzzy-finds bookmarks (fzf-style, across kind,
 key/query, name and title; best match first): `↓`/`↑` or `ctrl+n`/`ctrl+p` move,
 `enter` opens the selected bookmark, `esc` goes back to the full list.
 
-Press `B` in the issue browser, on a feature/epic/sprint in the explorers or on
-a page in `confluence browse` to bookmark it (`B` again removes it); `S` in an
-issue list bookmarks its query. Bookmarks live in
+Press `b` in the issue browser, on a feature/epic/sprint in the explorers or on
+a page in `confluence browse` to bookmark it (`b` again removes it); `S` in an
+issue list bookmarks its query. `B` in those browsers opens your bookmarks
+without leaving them: in `confluence browse` the page bookmarks (the tree jumps
+to the chosen page, loading its space or switching to it), in the issue browser
+and explorers the issue, query, feature, epic and sprint bookmarks (an issue
+opens in the issue view, the others replace the list). Bookmarks live in
 `~/.config/atlassian-cli/bookmarks.yaml` (or `ATLASSIAN_BOOKMARKS`), a plain
 YAML file you can edit, back up or sync.
+
+### Confluence page browser
+
+`confluence browse [SPACE]` shows the page tree on the left and the selected
+page rendered on the right; child pages load when a page is expanded.
+
+| Key | Action |
+|-----|--------|
+| `↑`/`↓`, `j`/`k`, `g`/`G`, `ctrl+f`/`ctrl+b` | Move in the tree (or scroll the page when it has focus) |
+| `enter` / `l` | Expand the page (again: step into its children) |
+| `h` | Collapse, or go to the parent |
+| `tab` / `w` | Switch between tree and page |
+| `/` | Fuzzy-find pages (the whole space is loaded in the background): `↓`/`↑` or `ctrl+n`/`ctrl+p` move between matches, `enter` jumps to the page, `esc` goes back |
+| `i` | View the page's images full screen |
+| `b` | Bookmark the page (again: remove the bookmark) |
+| `B` | Bookmarks: jump to a bookmarked page |
+| `o` / `c` | Open the page in the browser / copy its URL |
+| `ctrl+r` / `F5` | Reload the page |
+| `?` / `q` | Help / quit |
 
 ### Images in the Confluence browser
 
@@ -360,6 +414,9 @@ To let tmux draw Sixel itself, declare the feature, e.g.
 with that `TERM`). Set `ATLASSIAN_IMAGES` to `kitty`, `iterm`, `sixel`, `blocks` or `off`
 to override the detection.
 
+Known issue: the full-screen view stays blank with WezTerm on Windows connected
+over SSH to tmux (WezTerm on Linux works); see [TODO.md](TODO.md).
+
 ### Confluence
 
 ```bash
@@ -383,10 +440,7 @@ atlassian-cli confluence search --text "release notes" --space PROJ
 atlassian-cli confluence search 'space = PROJ AND label = "howto"'   # CQL
 atlassian-cli confluence space list
 
-# Browse interactively: page tree on the left, rendered page on the right.
-# / fuzzy-finds pages (fzf-style, smart case; the whole space is loaded in the
-# background): ↓/↑ or ctrl+n/ctrl+p move between matches, enter jumps to the
-# page, esc goes back. B bookmarks the page, i shows its images.
+# Browse interactively (see "Confluence page browser" above)
 atlassian-cli confluence browse          # all spaces
 atlassian-cli confluence browse PROJ     # one space
 
@@ -549,6 +603,35 @@ Add to your Claude Code MCP settings:
   }
 }
 ```
+
+## Development
+
+```bash
+go build -o atlassian-cli .
+go test --shuffle on --race ./...
+golangci-lint run
+```
+
+`tools/fakejira` is a local Jira/Confluence server for trying the CLI and the
+TUIs without a real instance. It serves exported issues (one directory per
+issue with `<KEY>.json` and its attachments, or one JSON array file) over the
+REST endpoints the CLI uses, plus a demo Confluence space with pages and
+images, a Scrum board with sprints, and epics:
+
+```bash
+go run ./tools/fakejira -data ./my-issues      # listens on 127.0.0.1:18080
+export JIRA_URL=http://127.0.0.1:18080 JIRA_PERSONAL_TOKEN=x
+export CONFLUENCE_URL=http://127.0.0.1:18080 CONFLUENCE_PERSONAL_TOKEN=x
+./atlassian-cli jira issue list -p ""
+./atlassian-cli confluence browse DEMO
+```
+
+An optional `names.json` in the data directory maps custom field IDs to names.
+Changes are kept in memory only. Never commit exported data from a real
+instance.
+
+Releases: pushing a `v*` tag builds the binaries with GoReleaser
+(`.github/workflows/release.yml`) and publishes them as a GitHub release.
 
 ## Why not the official ACLI?
 

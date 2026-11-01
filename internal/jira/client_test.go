@@ -11,7 +11,7 @@ import (
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
-	"github.com/putcho01/atlassian-cli/internal/httpclient"
+	"github.com/zhani/atlassian-cli/internal/httpclient"
 )
 
 func newTestJiraClient(baseURL string) *Client {

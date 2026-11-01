@@ -13,10 +13,10 @@ import (
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
-	"github.com/putcho01/atlassian-cli/internal/bookmarks"
-	"github.com/putcho01/atlassian-cli/internal/confluence"
-	"github.com/putcho01/atlassian-cli/internal/htmlconv"
-	"github.com/putcho01/atlassian-cli/internal/termimg"
+	"github.com/zhani/atlassian-cli/internal/bookmarks"
+	"github.com/zhani/atlassian-cli/internal/confluence"
+	"github.com/zhani/atlassian-cli/internal/htmlconv"
+	"github.com/zhani/atlassian-cli/internal/termimg"
 )
 
 // PageSource is the subset of the Confluence client the page browser needs.
@@ -40,7 +40,8 @@ type TreeOptions struct {
 	OpenURL func(url string) error
 	Copy    func(text string) error
 
-	// Bookmarks enables B (bookmark the page).
+	// Bookmarks enables b (bookmark the page) and B (jump to a bookmarked
+	// page).
 	Bookmarks Bookmarker
 }
 
@@ -111,11 +112,14 @@ type treeModel struct {
 
 	spaceLoaded  map[string]bool // spaces whose whole page tree is loaded
 	spaceLoading map[string]bool
-	loading      bool
-	spinner      spinner.Model
-	help         help.Model
-	status       string
-	statusErr    bool
+
+	picker        *bookmarkModel // open bookmark picker (B)
+	pendingReveal string         // page to select once its space is loaded
+	loading       bool
+	spinner       spinner.Model
+	help          help.Model
+	status        string
+	statusErr     bool
 
 	width, height int
 	quitting      bool
@@ -190,7 +194,21 @@ func (m treeModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.width, m.height = msg.Width, msg.Height
 		m.layout()
 		m.showContent()
+		if m.picker != nil {
+			_, _, _ = updatePicker(m.picker, msg)
+		}
 		return m, nil
+
+	case pageSpaceMsg:
+		if msg.id != m.pendingReveal {
+			return m, nil
+		}
+		if msg.err != nil {
+			m.pendingReveal = ""
+			m.setStatus(msg.err.Error(), true)
+			return m, nil
+		}
+		return m, m.revealInSpace(msg.space)
 
 	case spinner.TickMsg:
 		if !m.loading {
@@ -240,11 +258,21 @@ func (m treeModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case spaceTreeMsg:
 		delete(m.spaceLoading, msg.space)
+		m.loading = false
 		if msg.err != nil {
+			m.pendingReveal = ""
 			m.setStatus("Loading all pages of "+msg.space+" failed: "+msg.err.Error(), true)
 			return m, nil
 		}
 		m.mergeSpaceTree(msg.space, msg.pages)
+		if id := m.pendingReveal; id != "" {
+			m.pendingReveal = ""
+			if n := m.findNode(id); n != nil {
+				return m, m.revealNode(n)
+			}
+			m.setStatus("Page "+id+" was not found in "+msg.space, true)
+			return m, nil
+		}
 		if m.filtering {
 			sel := m.selected()
 			m.applyTreeFilter()
@@ -326,6 +354,9 @@ func (m treeModel) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.quitting = true
 		return m, tea.Quit
 	}
+	if m.picker != nil {
+		return m.handleTreePickerKey(msg)
+	}
 	if m.filtering {
 		return m.handleFilterKey(msg)
 	}
@@ -336,6 +367,10 @@ func (m treeModel) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	m.status = ""
 	if key.Matches(msg, keys.filter) {
 		return m, m.startFilter()
+	}
+	if m.opts.Bookmarks != nil && key.Matches(msg, bookmarkKeys.picker) {
+		m.picker = newPicker(m.opts.Bookmarks, []bookmarks.Kind{bookmarks.Page}, m.width, m.height)
+		return m, nil
 	}
 
 	switch {
@@ -618,6 +653,9 @@ func (m treeModel) View() string {
 	if m.quitting {
 		return ""
 	}
+	if m.picker != nil {
+		return m.picker.View()
+	}
 	tree := m.treeView()
 	contentStyle := styleSidebarBlurred
 	if m.focusContent {
@@ -712,10 +750,14 @@ func (m treeModel) helpKeys() helpKeys {
 		b := []key.Binding{filterKeys.next, filterKeys.prev, filterKeys.accept, filterKeys.cancel}
 		return helpKeys{short: b, full: [][]key.Binding{b}}
 	}
-	short := []key.Binding{treeKeys.expand, treeKeys.collapse, keys.filter, treeKeys.focus, treeKeys.images, keys.open, keys.help, keys.quit}
+	short := []key.Binding{treeKeys.expand, treeKeys.collapse, keys.filter, treeKeys.focus}
+	if m.opts.Bookmarks != nil {
+		short = append(short, bookmarkKeys.toggle, bookmarkKeys.picker)
+	}
+	short = append(short, treeKeys.images, keys.open, keys.help, keys.quit)
 	return helpKeys{short: short, full: [][]key.Binding{
 		{keys.up, keys.down, keys.pageUp, keys.pageDown, keys.top, keys.bottom},
-		{treeKeys.expand, treeKeys.collapse, treeKeys.focus, treeKeys.refresh, treeKeys.images, bookmarkKeys.toggle},
+		{treeKeys.expand, treeKeys.collapse, treeKeys.focus, treeKeys.refresh, treeKeys.images, bookmarkKeys.toggle, bookmarkKeys.picker},
 		{keys.filter, keys.open, keys.copyURL, keys.help, keys.quit},
 	}}
 }

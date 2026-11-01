@@ -7,10 +7,10 @@ import (
 	"strings"
 
 	"github.com/mattn/go-isatty"
-	"github.com/putcho01/atlassian-cli/internal/confluence"
-	"github.com/putcho01/atlassian-cli/internal/htmlconv"
-	"github.com/putcho01/atlassian-cli/internal/mdconv"
 	"github.com/spf13/cobra"
+	"github.com/zhani/atlassian-cli/internal/confluence"
+	"github.com/zhani/atlassian-cli/internal/htmlconv"
+	"github.com/zhani/atlassian-cli/internal/mdconv"
 )
 
 var confluencePageEditCmd = &cobra.Command{

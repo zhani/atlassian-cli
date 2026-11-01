@@ -8,8 +8,8 @@ import (
 	"github.com/charmbracelet/bubbles/key"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
-	"github.com/putcho01/atlassian-cli/internal/bookmarks"
-	"github.com/putcho01/atlassian-cli/internal/jira"
+	"github.com/zhani/atlassian-cli/internal/bookmarks"
+	"github.com/zhani/atlassian-cli/internal/jira"
 )
 
 // ExplorerItem is an entry of the explorer sidebar (a feature, epic or
@@ -39,7 +39,7 @@ type ExplorerOptions struct {
 	DrillJQL func(issue jira.Issue) (string, bool)
 
 	// Kind is the bookmark kind of the sidebar items (feature, epic,
-	// sprint); B bookmarks them when Issues.Bookmarks is set.
+	// sprint); b bookmarks them when Issues.Bookmarks is set.
 	Kind bookmarks.Kind
 }
 
@@ -142,9 +142,14 @@ func (m explorerModel) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	}
 	m.status, m.statusOK = "", false
 
-	// While typing a filter or choosing a transition, the issue pane owns
-	// every key.
-	if m.focusRight && (m.right.filtering || m.right.mode == modeTransition) {
+	// While typing a filter, choosing a transition or picking a bookmark,
+	// the issue pane owns every key.
+	if m.right.picker != nil || m.focusRight && (m.right.filtering || m.right.mode == modeTransition) {
+		return m.forward(msg)
+	}
+	// B picks a bookmark to show in the issue pane, from either pane.
+	if m.opts.Issues.Bookmarks != nil && key.Matches(msg, bookmarkKeys.picker) {
+		m.focusRight = true
 		return m.forward(msg)
 	}
 

@@ -14,7 +14,8 @@ import (
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
-	"github.com/putcho01/atlassian-cli/internal/jira"
+	"github.com/zhani/atlassian-cli/internal/bookmarks"
+	"github.com/zhani/atlassian-cli/internal/jira"
 )
 
 // Source is the subset of the Jira client the browser needs. *jira.Client
@@ -48,8 +49,12 @@ type Options struct {
 	// IDs, in order); empty shows all non-empty ones.
 	DetailFields []string
 
-	// Bookmarks enables B (bookmark the issue) and S (bookmark the query).
+	// Bookmarks enables b (bookmark the issue), S (bookmark the query) and
+	// B (pick a bookmark to show).
 	Bookmarks Bookmarker
+	// ResolveBookmark returns the issues of a feature, epic or sprint
+	// bookmark picked with B; without it only issues and queries open.
+	ResolveBookmark func(ctx context.Context, b bookmarks.Bookmark) (BookmarkView, error)
 
 	// OpenDetail starts in the detail view of this issue.
 	OpenDetail string
@@ -134,6 +139,16 @@ type model struct {
 	pendingSelect string        // issue to select once the next result arrives
 	extraHelp     []key.Binding // bindings of an enclosing view (explorer)
 	initCmd       tea.Cmd
+
+	picker *bookmarkModel // open bookmark picker (B)
+}
+
+// BookmarkView is what a feature, epic or sprint bookmark shows in the
+// issue browser.
+type BookmarkView struct {
+	JQL, Caption    string
+	AnnotationTitle string
+	Annotations     map[string]string
 }
 
 func newModel(ctx context.Context, opts Options, render markdownRenderer) model {
@@ -180,7 +195,18 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.width, m.height = msg.Width, msg.Height
 		m.layout()
 		m.refreshDetailContent()
+		if m.picker != nil {
+			_, _, _ = updatePicker(m.picker, msg)
+		}
 		return m, nil
+
+	case bookmarkViewMsg:
+		m.loading = false
+		if msg.err != nil {
+			m.setStatus(msg.b.Label()+": "+msg.err.Error(), true)
+			return m, nil
+		}
+		return m, m.showView(msg.view)
 
 	case spinner.TickMsg:
 		if !m.loading {
@@ -272,6 +298,9 @@ func (m model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	}
 	m.status = ""
 
+	if m.picker != nil {
+		return m.handlePickerKey(msg)
+	}
 	if m.filtering {
 		return m.handleFilterKey(msg)
 	}
@@ -315,6 +344,10 @@ func (m model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.setStatus(toggleBookmark(m.opts.Bookmarks, m.issueBookmark(issueKey)))
 			return m, nil
 		}
+	}
+	if m.opts.Bookmarks != nil && key.Matches(msg, bookmarkKeys.picker) {
+		m.picker = newPicker(m.opts.Bookmarks, []bookmarks.Kind{bookmarks.Issue, bookmarks.Query, bookmarks.Feature, bookmarks.Epic, bookmarks.Sprint}, m.width, m.height)
+		return m, nil
 	}
 	if m.mode == modeList && m.opts.Bookmarks != nil && m.opts.JQL != "" && key.Matches(msg, bookmarkKeys.saveQuery) {
 		m.setStatus(toggleBookmark(m.opts.Bookmarks, m.queryBookmark()))
@@ -536,6 +569,9 @@ func (m *model) refreshDetailContent() {
 func (m model) View() string {
 	if m.quitting {
 		return ""
+	}
+	if m.picker != nil {
+		return m.picker.View()
 	}
 	var body string
 	switch {

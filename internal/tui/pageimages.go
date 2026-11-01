@@ -12,8 +12,8 @@ import (
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/putcho01/atlassian-cli/internal/confluence"
-	"github.com/putcho01/atlassian-cli/internal/termimg"
+	"github.com/zhani/atlassian-cli/internal/confluence"
+	"github.com/zhani/atlassian-cli/internal/termimg"
 )
 
 // ImageSource is implemented by page sources that can download images

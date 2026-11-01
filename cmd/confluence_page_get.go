@@ -3,8 +3,8 @@ package cmd
 import (
 	"fmt"
 
-	"github.com/putcho01/atlassian-cli/internal/htmlconv"
 	"github.com/spf13/cobra"
+	"github.com/zhani/atlassian-cli/internal/htmlconv"
 )
 
 var confluencePageGetCmd = &cobra.Command{

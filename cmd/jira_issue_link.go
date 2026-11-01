@@ -3,8 +3,8 @@ package cmd
 import (
 	"fmt"
 
-	"github.com/putcho01/atlassian-cli/internal/jira"
 	"github.com/spf13/cobra"
+	"github.com/zhani/atlassian-cli/internal/jira"
 )
 
 var jiraIssueLinkCmd = &cobra.Command{

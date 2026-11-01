@@ -3,9 +3,9 @@ package cmd
 import (
 	"fmt"
 
-	"github.com/putcho01/atlassian-cli/internal/config"
-	"github.com/putcho01/atlassian-cli/internal/jira"
 	"github.com/spf13/cobra"
+	"github.com/zhani/atlassian-cli/internal/config"
+	"github.com/zhani/atlassian-cli/internal/jira"
 )
 
 var jiraIssueListCmd = &cobra.Command{

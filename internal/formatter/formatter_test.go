@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/putcho01/atlassian-cli/internal/jira"
+	"github.com/zhani/atlassian-cli/internal/jira"
 )
 
 func TestParseFormat(t *testing.T) {

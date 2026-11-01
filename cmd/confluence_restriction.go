@@ -3,8 +3,8 @@ package cmd
 import (
 	"fmt"
 
-	"github.com/putcho01/atlassian-cli/internal/confluence"
 	"github.com/spf13/cobra"
+	"github.com/zhani/atlassian-cli/internal/confluence"
 )
 
 var confluenceRestrictionCmd = &cobra.Command{

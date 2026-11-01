@@ -6,11 +6,11 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/putcho01/atlassian-cli/internal/bookmarks"
-	"github.com/putcho01/atlassian-cli/internal/config"
-	"github.com/putcho01/atlassian-cli/internal/jira"
-	"github.com/putcho01/atlassian-cli/internal/tui"
 	"github.com/spf13/cobra"
+	"github.com/zhani/atlassian-cli/internal/bookmarks"
+	"github.com/zhani/atlassian-cli/internal/config"
+	"github.com/zhani/atlassian-cli/internal/jira"
+	"github.com/zhani/atlassian-cli/internal/tui"
 )
 
 // explorerFields are fetched for sidebar items; issuelinks gives features

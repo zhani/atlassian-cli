@@ -9,7 +9,7 @@ import (
 	"github.com/charmbracelet/bubbles/spinner"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/google/go-cmp/cmp"
-	"github.com/putcho01/atlassian-cli/internal/confluence"
+	"github.com/zhani/atlassian-cli/internal/confluence"
 )
 
 type fakePages struct {
@@ -79,16 +79,21 @@ func drainTree(m treeModel, cmd tea.Cmd) treeModel {
 	return m
 }
 
-func pressTree(m treeModel, k string) treeModel {
-	msg := tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(k)}
-	switch k {
-	case "enter":
-		msg = tea.KeyMsg{Type: tea.KeyEnter}
-	case "tab":
-		msg = tea.KeyMsg{Type: tea.KeyTab}
+func pressTree(m treeModel, ks ...string) treeModel {
+	for _, k := range ks {
+		msg := tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(k)}
+		switch k {
+		case "enter":
+			msg = tea.KeyMsg{Type: tea.KeyEnter}
+		case "tab":
+			msg = tea.KeyMsg{Type: tea.KeyTab}
+		case "esc":
+			msg = tea.KeyMsg{Type: tea.KeyEsc}
+		}
+		next, cmd := m.Update(msg)
+		m = drainTree(next.(treeModel), cmd)
 	}
-	next, cmd := m.Update(msg)
-	return drainTree(next.(treeModel), cmd)
+	return m
 }
 
 func treeLabels(m treeModel) []string {

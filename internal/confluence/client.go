@@ -10,8 +10,8 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/putcho01/atlassian-cli/internal/config"
-	"github.com/putcho01/atlassian-cli/internal/httpclient"
+	"github.com/zhani/atlassian-cli/internal/config"
+	"github.com/zhani/atlassian-cli/internal/httpclient"
 )
 
 type Client struct {

@@ -29,7 +29,7 @@ var keys = keyMap{
 	down:     key.NewBinding(key.WithKeys("down", "j"), key.WithHelp("↓/j", "down")),
 	top:      key.NewBinding(key.WithKeys("home", "g"), key.WithHelp("g", "top")),
 	bottom:   key.NewBinding(key.WithKeys("end", "G"), key.WithHelp("G", "bottom")),
-	pageUp:   key.NewBinding(key.WithKeys("ctrl+b", "pgup", "b"), key.WithHelp("ctrl+b", "page up")),
+	pageUp:   key.NewBinding(key.WithKeys("ctrl+b", "pgup"), key.WithHelp("ctrl+b", "page up")), // b bookmarks
 	pageDown: key.NewBinding(key.WithKeys("ctrl+f", "pgdown", "f", " "), key.WithHelp("ctrl+f", "page down")),
 	choose:   key.NewBinding(key.WithKeys("enter"), key.WithHelp("enter", "apply")),
 }
@@ -67,8 +67,10 @@ func (h helpKeys) FullHelp() [][]key.Binding { return h.full }
 
 func (m model) helpKeys() helpKeys {
 	actions := []key.Binding{keys.open, keys.transition, keys.copyURL, keys.copyKey, keys.refresh}
+	var bm []key.Binding // bookmark keys, also in the short help
 	if m.opts.Bookmarks != nil {
-		actions = append(actions, bookmarkKeys.toggle)
+		bm = []key.Binding{bookmarkKeys.toggle, bookmarkKeys.picker}
+		actions = append(actions, bm...)
 		if m.mode == modeList && m.opts.JQL != "" {
 			actions = append(actions, bookmarkKeys.saveQuery)
 		}
@@ -84,7 +86,7 @@ func (m model) helpKeys() helpKeys {
 		return helpKeys{short: b, full: [][]key.Binding{b}}
 	case modeDetail:
 		return helpKeys{
-			short: []key.Binding{keys.back, keys.open, keys.transition, keys.help, keys.quit},
+			short: append(append([]key.Binding{keys.back, keys.open, keys.transition}, bm...), keys.help, keys.quit),
 			full: [][]key.Binding{
 				{keys.up, keys.down, keys.pageUp, keys.pageDown, keys.top, keys.bottom},
 				actions,
@@ -93,7 +95,7 @@ func (m model) helpKeys() helpKeys {
 		}
 	default:
 		return helpKeys{
-			short: append(append([]key.Binding{keys.detail, keys.open, keys.transition, keys.filter}, m.extraHelp...), keys.help, keys.quit),
+			short: append(append(append([]key.Binding{keys.detail, keys.open, keys.transition, keys.filter}, m.extraHelp...), bm...), keys.help, keys.quit),
 			full: [][]key.Binding{
 				{keys.up, keys.down, keys.pageUp, keys.pageDown, keys.top, keys.bottom},
 				append([]key.Binding{keys.detail}, actions...),

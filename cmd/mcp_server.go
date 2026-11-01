@@ -3,8 +3,8 @@ package cmd
 import (
 	"strings"
 
-	"github.com/putcho01/atlassian-cli/internal/mcptools"
 	"github.com/spf13/cobra"
+	"github.com/zhani/atlassian-cli/internal/mcptools"
 )
 
 var mcpServerCmd = &cobra.Command{

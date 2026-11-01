@@ -3,11 +3,11 @@ package cmd
 import (
 	"os"
 
-	"github.com/putcho01/atlassian-cli/internal/config"
-	"github.com/putcho01/atlassian-cli/internal/confluence"
-	"github.com/putcho01/atlassian-cli/internal/formatter"
-	"github.com/putcho01/atlassian-cli/internal/jira"
 	"github.com/spf13/cobra"
+	"github.com/zhani/atlassian-cli/internal/config"
+	"github.com/zhani/atlassian-cli/internal/confluence"
+	"github.com/zhani/atlassian-cli/internal/formatter"
+	"github.com/zhani/atlassian-cli/internal/jira"
 )
 
 func newJiraClient() (*jira.Client, error) {

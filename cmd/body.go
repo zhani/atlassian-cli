@@ -9,8 +9,8 @@ import (
 	"strings"
 
 	"github.com/mattn/go-isatty"
-	"github.com/putcho01/atlassian-cli/internal/mdconv"
 	"github.com/spf13/cobra"
+	"github.com/zhani/atlassian-cli/internal/mdconv"
 )
 
 // addBodyFlags registers a long-text flag (e.g. --body) together with the

@@ -10,8 +10,8 @@ import (
 
 	"github.com/charmbracelet/glamour"
 	"github.com/charmbracelet/lipgloss"
-	"github.com/putcho01/atlassian-cli/internal/htmlconv"
-	"github.com/putcho01/atlassian-cli/internal/jira"
+	"github.com/zhani/atlassian-cli/internal/htmlconv"
+	"github.com/zhani/atlassian-cli/internal/jira"
 )
 
 // maxComments is how many of the most recent comments the detail view shows.
