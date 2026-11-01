@@ -507,7 +507,9 @@ linked issues, epics with their issues, sprints), the issues of the active
 sprints (of the exported boards, else of `JIRA_DEFAULT_PROJECT`; skipped when
 none is active; `--no-active-sprint` turns it off), your issues that are
 unresolved or resolved as anything but Done/Fixed (`--no-my-issues` turns it
-off), the subtasks and parents of those issues, and each `--page` / bookmarked page with all its
+off), the issues one step away from those (parent, subtasks, epic, every
+linked issue: "relates to", "is blocked by"…, and the tests in Xray's Test
+Coverage; not followed further), and each `--page` / bookmarked page with all its
 descendants. Issues keep their rendered descriptions, all comments and their
 attachments; pages keep their attachments and the images they link on the
 same site. The bookmark file and the field names come along too.
