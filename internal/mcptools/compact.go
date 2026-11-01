@@ -15,6 +15,7 @@ type compactIssue struct {
 	Key           string            `json:"key"`
 	Summary       string            `json:"summary"`
 	Status        string            `json:"status,omitempty"`
+	Resolution    string            `json:"resolution,omitempty"`
 	Type          string            `json:"type,omitempty"`
 	Priority      string            `json:"priority,omitempty"`
 	Assignee      string            `json:"assignee,omitempty"`
@@ -76,15 +77,16 @@ const maxCompactComments = 10
 func compactIssueFrom(is *jira.Issue) compactIssue {
 	f := is.Fields
 	out := compactIssue{
-		Key:      is.Key,
-		Summary:  f.Summary,
-		Status:   statusName(f.Status),
-		Priority: priorityName(f.Priority),
-		Assignee: userName(f.Assignee),
-		Reporter: userName(f.Reporter),
-		Created:  f.Created,
-		Updated:  f.Updated,
-		Labels:   f.Labels,
+		Key:        is.Key,
+		Summary:    f.Summary,
+		Status:     statusName(f.Status),
+		Resolution: f.ResolutionName(),
+		Priority:   priorityName(f.Priority),
+		Assignee:   userName(f.Assignee),
+		Reporter:   userName(f.Reporter),
+		Created:    f.Created,
+		Updated:    f.Updated,
+		Labels:     f.Labels,
 	}
 	if f.IssueType != nil {
 		out.Type = f.IssueType.Name

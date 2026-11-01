@@ -17,16 +17,17 @@ type issueColumn struct {
 }
 
 var issueColumns = map[string]issueColumn{
-	"key":      {"Key", func(i jira.Issue) string { return i.Key }},
-	"summary":  {"Summary", func(i jira.Issue) string { return i.Fields.Summary }},
-	"status":   {"Status", func(i jira.Issue) string { return safeName(i.Fields.Status) }},
-	"assignee": {"Assignee", func(i jira.Issue) string { return safeUser(i.Fields.Assignee) }},
-	"reporter": {"Reporter", func(i jira.Issue) string { return safeUser(i.Fields.Reporter) }},
-	"priority": {"Priority", func(i jira.Issue) string { return safePriority(i.Fields.Priority) }},
-	"type":     {"Type", func(i jira.Issue) string { return safeIssueType(i.Fields.IssueType) }},
-	"labels":   {"Labels", func(i jira.Issue) string { return strings.Join(i.Fields.Labels, ",") }},
-	"created":  {"Created", func(i jira.Issue) string { return i.Fields.Created }},
-	"updated":  {"Updated", func(i jira.Issue) string { return i.Fields.Updated }},
+	"key":        {"Key", func(i jira.Issue) string { return i.Key }},
+	"summary":    {"Summary", func(i jira.Issue) string { return i.Fields.Summary }},
+	"status":     {"Status", func(i jira.Issue) string { return safeName(i.Fields.Status) }},
+	"assignee":   {"Assignee", func(i jira.Issue) string { return safeUser(i.Fields.Assignee) }},
+	"reporter":   {"Reporter", func(i jira.Issue) string { return safeUser(i.Fields.Reporter) }},
+	"priority":   {"Priority", func(i jira.Issue) string { return safePriority(i.Fields.Priority) }},
+	"resolution": {"Resolution", func(i jira.Issue) string { return i.Fields.ResolutionName() }},
+	"type":       {"Type", func(i jira.Issue) string { return safeIssueType(i.Fields.IssueType) }},
+	"labels":     {"Labels", func(i jira.Issue) string { return strings.Join(i.Fields.Labels, ",") }},
+	"created":    {"Created", func(i jira.Issue) string { return i.Fields.Created }},
+	"updated":    {"Updated", func(i jira.Issue) string { return i.Fields.Updated }},
 	"project": {"Project", func(i jira.Issue) string {
 		if i.Fields.Project == nil {
 			return ""

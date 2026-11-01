@@ -29,7 +29,8 @@ func issueMarkdown(issue *jira.Issue, detailFields []string) string {
 
 	// Header fields, a few per list item (glamour has no hard line breaks).
 	lines := [][]string{
-		{field("Status", safeName(f.Status)), field("Type", safeType(f.IssueType)), field("Priority", safePriority(f.Priority))},
+		{field("Status", safeName(f.Status)), field("Resolution", f.ResolutionName())},
+		{field("Type", safeType(f.IssueType)), field("Priority", safePriority(f.Priority))},
 		{field("Assignee", safeUser(f.Assignee)), field("Reporter", safeUser(f.Reporter))},
 		{field("Created", formatTime(f.Created)), field("Updated", formatTime(f.Updated))},
 	}

@@ -17,9 +17,11 @@ Prefix a value with ~ to negate it (-s~Done). For --assignee and --reporter,
 "me" means the current user and "x" means nobody. --created and --updated take
 a period such as -7d, 2w, -12h, today, week, month or year.
 
-The project defaults to JIRA_DEFAULT_PROJECT. Use --show-jql to print the
+The project defaults to JIRA_DEFAULT_PROJECT (-p "" searches all projects).
+--resolution Unresolved lists open issues. Use --show-jql to print the
 generated query without running it.`,
-	Example: `  atlassian-cli jira issue list -a me -s~Done
+	Example: `  atlassian-cli jira issue list -a me -R Unresolved -p ""
+  atlassian-cli jira issue list -a me -s~Done
   atlassian-cli jira issue list -p PROJ -t Bug -y High --created week
   atlassian-cli jira issue list -l backend -l~wontfix --order-by updated
   atlassian-cli jira issue list -a x -q "summary ~ crash" --plain --columns key,status,summary`,
@@ -46,11 +48,12 @@ generated query without running it.`,
 // epic and sprint listings (all but the issue type, which differs).
 func addFilterFlags(cmd *cobra.Command) {
 	f := cmd.Flags()
-	f.StringP("project", "p", "", "Project key (default: JIRA_DEFAULT_PROJECT)")
+	f.StringP("project", "p", "", `Project key (default: JIRA_DEFAULT_PROJECT; -p "" for all projects)`)
 	f.StringP("status", "s", "", "Status")
 	f.StringP("assignee", "a", "", `Assignee ("me", "x" for unassigned, or a user)`)
 	f.StringP("reporter", "r", "", `Reporter ("me", "x", or a user)`)
 	f.StringP("priority", "y", "", "Priority")
+	f.StringP("resolution", "R", "", `Resolution ("Unresolved" for none, "~Unresolved" for any)`)
 	f.StringArrayP("label", "l", nil, "Label (repeatable)")
 	f.BoolP("watching", "w", false, "Only issues you are watching")
 	f.String("created", "", "Created since (-7d, 2w, today, week, month, year)")
@@ -67,13 +70,14 @@ func filterOptions(cmd *cobra.Command, cfg *config.AtlassianConfig) jira.ListOpt
 	flags := cmd.Flags()
 	var o jira.ListOptions
 	o.Project, _ = flags.GetString("project")
-	if o.Project == "" {
+	if !flags.Changed("project") { // an explicit -p "" means all projects
 		o.Project = cfg.DefaultProject
 	}
 	o.Status, _ = flags.GetString("status")
 	o.Assignee, _ = flags.GetString("assignee")
 	o.Reporter, _ = flags.GetString("reporter")
 	o.Priority, _ = flags.GetString("priority")
+	o.Resolution, _ = flags.GetString("resolution")
 	o.Labels, _ = flags.GetStringArray("label")
 	o.Watching, _ = flags.GetBool("watching")
 	o.Created, _ = flags.GetString("created")

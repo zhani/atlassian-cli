@@ -104,7 +104,7 @@ feature's issues are shown.`,
 			opts := filterOptions(cmd, cfg)
 			opts.Type = featureType
 			all, _ := cmd.Flags().GetBool("all")
-			opts.Unresolved = !all
+			opts.Unresolved = !all && opts.Resolution == "" // an explicit -R wins
 			jql, err := jira.BuildJQL(opts)
 			if err != nil {
 				return err
@@ -246,7 +246,7 @@ Server/DC; set JIRA_EPIC_LINK_FIELD to use another JQL field.`,
 		opts := filterOptions(cmd, cfg)
 		opts.Type = "Epic"
 		all, _ := cmd.Flags().GetBool("all")
-		opts.Unresolved = !all
+		opts.Unresolved = !all && opts.Resolution == "" // an explicit -R wins
 		jql, err := jira.BuildJQL(opts)
 		if err != nil {
 			return err

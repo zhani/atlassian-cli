@@ -117,6 +117,7 @@ type IssueFields struct {
 	Status      *Status      `json:"status"`
 	IssueType   *IssueType   `json:"issuetype"`
 	Priority    *Priority    `json:"priority"`
+	Resolution  *Resolution  `json:"resolution"`
 	Assignee    *User        `json:"assignee"`
 	Reporter    *User        `json:"reporter"`
 	Project     *Project     `json:"project"`
@@ -222,6 +223,20 @@ type Priority struct {
 	Self string `json:"self"`
 	ID   string `json:"id"`
 	Name string `json:"name"`
+}
+
+// Resolution is how an issue was resolved; nil while it is unresolved.
+type Resolution struct {
+	ID   string `json:"id"`
+	Name string `json:"name"`
+}
+
+// ResolutionName returns the resolution of an issue, or "Unresolved".
+func (f *IssueFields) ResolutionName() string {
+	if f.Resolution == nil || f.Resolution.Name == "" {
+		return "Unresolved"
+	}
+	return f.Resolution.Name
 }
 
 type Project struct {

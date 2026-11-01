@@ -120,3 +120,17 @@ func TestIssueMarkdownCustomFields(t *testing.T) {
 		t.Errorf("DetailFields selection wrong:\n%s", md)
 	}
 }
+
+func TestIssueMarkdownResolution(t *testing.T) {
+	t.Parallel()
+	md := issueMarkdown(&jira.Issue{Key: "R-1", Fields: jira.IssueFields{Status: &jira.Status{Name: "Open"}}}, nil)
+	if !strings.Contains(md, "**Status:** Open · **Resolution:** Unresolved") {
+		t.Errorf("unresolved issue:\n%s", md)
+	}
+	md = issueMarkdown(&jira.Issue{Key: "R-2", Fields: jira.IssueFields{
+		Status: &jira.Status{Name: "Closed"}, Resolution: &jira.Resolution{Name: "Won't Do"},
+	}}, nil)
+	if !strings.Contains(md, "**Resolution:** Won't Do") {
+		t.Errorf("resolved issue:\n%s", md)
+	}
+}
