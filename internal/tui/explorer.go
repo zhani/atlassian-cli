@@ -304,10 +304,10 @@ func (m explorerModel) sidebarView() string {
 		}
 		footer = style.Render(" " + truncate(m.status, max(5, w-2)))
 	case len(m.opts.Items) > 0 && m.opts.Items[m.cursor].Status != "":
-		footer = styleDim.Render(" " + m.opts.Items[m.cursor].Status)
+		footer = styleDim.Render(" " + truncate(m.opts.Items[m.cursor].Status, max(5, w-2)))
 	}
 	if m.focusRight && len(m.stack) > 0 {
-		footer = styleDim.Render(" h: back to " + m.stack[len(m.stack)-1].selected)
+		footer = styleDim.Render(" " + truncate("h: back to "+m.stack[len(m.stack)-1].selected, max(5, w-2)))
 	}
 
 	body := lipgloss.NewStyle().Width(w).Height(m.height - 3).Render(sb.String())

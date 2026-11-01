@@ -106,8 +106,12 @@ type model struct {
 	visible []int        // indices into issues that match the filter
 	table   table.Model
 
-	filter    textinput.Model
-	filtering bool
+	filter       textinput.Model
+	filtering    bool
+	filterFrom   string           // issue selected when the filter opened, for esc
+	matches      map[int]rowMatch // fuzzy matches by issue index
+	filterOffset int              // first row of the filtered list
+	bodyHeight   int              // lines between the title and the footer
 
 	detailKey string
 	detail    viewport.Model
@@ -139,8 +143,7 @@ func newModel(ctx context.Context, opts Options, render markdownRenderer) model 
 	styles.Selected = styles.Selected.Foreground(lipgloss.Color("0")).Background(lipgloss.Color("12"))
 	t.SetStyles(styles)
 
-	f := textinput.New()
-	f.Prompt = "/"
+	f := newTreeFilterInput()
 
 	vp := viewport.New(0, 0)
 	vp.KeyMap = viewportKeyMap()
@@ -324,27 +327,29 @@ func (m model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return m.handleListKey(msg)
 }
 
+// openDetail shows the selected issue in the detail view.
+func (m model) openDetail() (tea.Model, tea.Cmd) {
+	issueKey := m.selectedKey()
+	if issueKey == "" {
+		return m, nil
+	}
+	m.mode = modeDetail
+	m.detailKey = issueKey
+	m.detail.GotoTop()
+	m.refreshDetailContent()
+	if _, ok := m.cache[issueKey]; ok {
+		return m, nil
+	}
+	cmd := tea.Batch(m.startLoading(), m.loadIssue(issueKey))
+	return m, cmd
+}
+
 func (m model) handleListKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch {
 	case key.Matches(msg, keys.detail):
-		issueKey := m.selectedKey()
-		if issueKey == "" {
-			return m, nil
-		}
-		m.mode = modeDetail
-		m.detailKey = issueKey
-		m.detail.GotoTop()
-		m.refreshDetailContent()
-		if _, ok := m.cache[issueKey]; ok {
-			return m, nil
-		}
-		cmd := tea.Batch(m.startLoading(), m.loadIssue(issueKey))
-		return m, cmd
+		return m.openDetail()
 	case key.Matches(msg, keys.filter):
-		m.filtering = true
-		m.layout()
-		cmd := m.filter.Focus()
-		return m, cmd
+		return m, m.startFilter()
 	case key.Matches(msg, keys.back):
 		if m.filter.Value() != "" {
 			m.filter.SetValue("")
@@ -355,6 +360,9 @@ func (m model) handleListKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	}
 	var cmd tea.Cmd
 	m.table, cmd = m.table.Update(msg)
+	if m.filterQuery() != "" {
+		m.keepFilterCursorVisible()
+	}
 	return m, cmd
 }
 
@@ -372,24 +380,6 @@ func (m model) handleDetailKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	}
 	var cmd tea.Cmd
 	m.detail, cmd = m.detail.Update(msg)
-	return m, cmd
-}
-
-func (m model) handleFilterKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
-	switch msg.Type {
-	case tea.KeyEsc:
-		m.filter.SetValue("")
-		fallthrough
-	case tea.KeyEnter:
-		m.filtering = false
-		m.filter.Blur()
-		m.applyFilter()
-		m.layout()
-		return m, nil
-	}
-	var cmd tea.Cmd
-	m.filter, cmd = m.filter.Update(msg)
-	m.applyFilter()
 	return m, cmd
 }
 
@@ -520,6 +510,7 @@ func (m *model) selectKey(issueKey string) {
 func (m *model) layout() {
 	footer := lipgloss.Height(m.footerView())
 	bodyHeight := max(3, m.height-1-footer) // 1 line for the title
+	m.bodyHeight = bodyHeight
 	m.table.SetColumns(columnsFor(m.width, m.opts.AnnotationTitle))
 	m.table.SetWidth(m.width)
 	m.table.SetHeight(bodyHeight)
@@ -550,6 +541,8 @@ func (m model) View() string {
 	switch {
 	case m.mode == modeDetail || (m.mode == modeTransition && m.prevMode == modeDetail):
 		body = m.detail.View()
+	case m.filterQuery() != "":
+		body = m.filteredView()
 	default:
 		body = m.table.View()
 	}
@@ -592,15 +585,15 @@ func (m model) footerView() string {
 	status := ""
 	switch {
 	case m.filtering:
-		status = m.filter.View()
+		status = m.filterFooter()
 	case m.status != "":
 		style := styleOK
 		if m.statusErr {
 			style = styleErr
 		}
 		status = style.Render(" " + truncate(m.status, max(10, m.width-2)))
-	case m.mode == modeList && m.filter.Value() != "":
-		status = styleDim.Render(" filter: " + m.filter.Value() + "  (esc to clear)")
+	case m.mode == modeList && m.filterQuery() != "":
+		status = m.filterFooter()
 	}
 	return status + "\n " + m.help.View(m.helpKeys())
 }

@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/charmbracelet/bubbles/cursor"
 	"github.com/charmbracelet/bubbles/key"
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
@@ -32,6 +33,7 @@ func newTreeFilterInput() textinput.Model {
 	f := textinput.New()
 	f.Prompt = "/ "
 	f.Placeholder = "fuzzy find"
+	f.Cursor.SetMode(cursor.CursorStatic) // no blink timer per keystroke
 	return f
 }
 

@@ -73,6 +73,11 @@ func (m model) helpKeys() helpKeys {
 			actions = append(actions, bookmarkKeys.saveQuery)
 		}
 	}
+	switch {
+	case m.filtering:
+		b := []key.Binding{filterKeys.next, filterKeys.prev, keys.detail, filterKeys.cancel}
+		return helpKeys{short: b, full: [][]key.Binding{b}}
+	}
 	switch m.mode {
 	case modeTransition:
 		b := []key.Binding{keys.up, keys.down, keys.choose, keys.back}
