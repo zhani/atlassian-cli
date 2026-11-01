@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## [v0.4.1](https://github.com/zhani/atlassian-cli/commits/v0.4.1) - 2026-11-01
 
 ### Offline mirror
 - `mirror export` also exports the issues one step away from the exported ones: every linked issue ("relates to", "is blocked by", "clones"…, both directions) the Epic Link and the tests covering a requirement (Xray's Requirement Status / Test Coverage field), besides parents and subtasks. Links of those linked issues are not followed.
