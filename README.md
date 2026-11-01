@@ -337,6 +337,26 @@ Copying uses `pbcopy`, `xclip`, `xsel` or `wl-copy` when available and falls
 back to the OSC 52 terminal escape sequence otherwise. Set `GLAMOUR_STYLE`
 (e.g. `dark`, `light`, `dracula`) to override the issue view's colour theme.
 
+### tmux with vim-tmux-navigator
+
+[vim-tmux-navigator](https://github.com/christoomey/vim-tmux-navigator) binds
+`ctrl+h/j/k/l` in tmux and passes them on only to vim, neovim and fzf, so
+atlassian-cli never sees them (pane focus, `ctrl+j`/`ctrl+k` in filters). Add
+atlassian-cli to its list by redefining the bindings in `tmux.conf`, **after**
+the line that runs tpm:
+
+```tmux
+is_vim="ps -o state= -o comm= -t '#{pane_tty}' \
+    | grep -iqE '^[^TXZ ]+ +(\\S+\\/)?g?\\.?(view|l?n?vim?x?|fzf|atlassian-cli)(diff)?(-wrapped)?$'"
+bind-key -n 'C-h' if-shell "$is_vim" 'send-keys C-h' 'select-pane -L'
+bind-key -n 'C-j' if-shell "$is_vim" 'send-keys C-j' 'select-pane -D'
+bind-key -n 'C-k' if-shell "$is_vim" 'send-keys C-k' 'select-pane -U'
+bind-key -n 'C-l' if-shell "$is_vim" 'send-keys C-l' 'select-pane -R'
+```
+
+Reload with `tmux source-file ~/.config/tmux/tmux.conf` (or your config path).
+Without it, `tab` still switches panes and `ctrl+n`/`ctrl+p` move in filters.
+
 ### Bookmarks
 
 Bookmarks keep the work you return to one keystroke away: Jira issues, saved
