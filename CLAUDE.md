@@ -44,7 +44,7 @@ The project is a single Go binary (`main.go` → `cmd.Execute()`) structured as 
 - **Issue lists**: `cmd/issue_list_output.go` — `addIssueListFlags` + `showIssues` shared by `issue search` and `issue list` (TUI vs. formatter decision in `useInteractive`). `jira.BuildJQL` turns `issue list` filter flags into JQL.
 - **Errors**: `rootCmd.PersistentPreRun` sets `SilenceUsage` once flags/args validated, so runtime errors print without the usage text.
 - **Server/DC vs Cloud**: `jira.Client.cloud` (email set or `*.atlassian.net`) selects user references (`accountId` vs `name`, see `userRef`/`UserID`) and the search endpoint. Shared operation logic (user/link-type/field resolution, clone) lives in `internal/jira/operations.go` and is used by both CLI and MCP.
-- **Dev server**: `go run ./tools/fakejira -data <dir>` serves exported issues over the REST endpoints the CLI uses; never commit real exported data.
+- **Dev server**: `go run ./tools/fakejira -data <dir>` serves exported issues over the REST endpoints the CLI uses (optional `<dir>/names.json` maps custom field IDs to names); never commit real exported data.
 
 - **Output format**: All commands take `--output` / `-o` (table/json/markdown) via a persistent root flag. Commands read it with `cmd.Root().PersistentFlags().GetString("output")`, then call `formatter.ParseFormat()`.
 - **Auth dispatch**: `config.loadConfig()` tries `_API_TOKEN` first, then `_PERSONAL_TOKEN`. If `Email` is non-empty in the resulting struct, the HTTP client uses Basic auth; otherwise Bearer.

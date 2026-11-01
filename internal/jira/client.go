@@ -61,9 +61,10 @@ func (c *Client) GetIssue(ctx context.Context, key string) (*Issue, error) {
 }
 
 // GetIssueRendered returns an issue together with the HTML-rendered versions
-// of its description and comments.
+// of its text fields (description, comments, custom text fields) and the
+// display names of its fields.
 func (c *Client) GetIssueRendered(ctx context.Context, key string) (*Issue, error) {
-	return c.GetIssueExpanded(ctx, key, "renderedFields")
+	return c.GetIssueExpanded(ctx, key, "renderedFields", "names")
 }
 
 // GetIssueExpanded returns an issue with the given expansions, e.g.

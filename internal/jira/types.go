@@ -36,6 +36,54 @@ type Issue struct {
 type RenderedFields struct {
 	Description string       `json:"description"`
 	Comment     *CommentPage `json:"comment,omitempty"`
+
+	// Custom holds the rendered HTML of custom text fields (customfield_*).
+	Custom map[string]string `json:"-"`
+}
+
+// UnmarshalJSON decodes the known rendered fields and captures rendered
+// custom text fields into Custom.
+func (r *RenderedFields) UnmarshalJSON(data []byte) error {
+	type alias RenderedFields // avoid recursion into this method
+	var a alias
+	if err := json.Unmarshal(data, &a); err != nil {
+		return err
+	}
+	*r = RenderedFields(a)
+
+	var raw map[string]json.RawMessage
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return err
+	}
+	for k, v := range raw {
+		var html string
+		if !strings.HasPrefix(k, "customfield_") || json.Unmarshal(v, &html) != nil || html == "" {
+			continue // not a custom field, or not rendered text
+		}
+		if r.Custom == nil {
+			r.Custom = map[string]string{}
+		}
+		r.Custom[k] = html
+	}
+	return nil
+}
+
+// MarshalJSON emits the known rendered fields plus the rendered custom
+// fields flattened into the object.
+func (r RenderedFields) MarshalJSON() ([]byte, error) {
+	type alias RenderedFields
+	base, err := json.Marshal(alias(r))
+	if err != nil || len(r.Custom) == 0 {
+		return base, err
+	}
+	var m map[string]any
+	if err := json.Unmarshal(base, &m); err != nil {
+		return nil, err
+	}
+	for k, v := range r.Custom {
+		m[k] = v
+	}
+	return json.Marshal(m)
 }
 
 // IssueLink connects an issue to another issue. Exactly one of InwardIssue

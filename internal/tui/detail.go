@@ -3,6 +3,8 @@ package tui
 import (
 	"fmt"
 	"os"
+	"regexp"
+	"sort"
 	"strings"
 	"time"
 
@@ -17,8 +19,9 @@ const maxComments = 5
 
 // issueMarkdown builds the markdown document shown in the detail view. Text
 // fields prefer their HTML-rendered versions (converted to markdown) and fall
-// back to the raw wiki markup.
-func issueMarkdown(issue *jira.Issue) string {
+// back to the raw wiki markup. detailFields limits the custom fields shown
+// (names or IDs, in order); empty shows all non-empty ones.
+func issueMarkdown(issue *jira.Issue, detailFields []string) string {
 	f := issue.Fields
 	var sb strings.Builder
 
@@ -47,6 +50,17 @@ func issueMarkdown(issue *jira.Issue) string {
 		sb.WriteString("_No description._\n")
 	} else {
 		sb.WriteString(description + "\n")
+	}
+
+	sections, short := customFields(issue, detailFields)
+	for _, sec := range sections {
+		fmt.Fprintf(&sb, "\n## %s\n\n%s\n", sec[0], sec[1])
+	}
+	if len(short) > 0 {
+		sb.WriteString("\n## Fields\n\n")
+		for _, fv := range short {
+			sb.WriteString("- " + field(fv[0], fv[1]) + "\n")
+		}
 	}
 
 	if len(f.IssueLinks) > 0 {
@@ -87,6 +101,127 @@ func issueMarkdown(issue *jira.Issue) string {
 	}
 
 	return sb.String()
+}
+
+// shortValueLimit is the length above which a text field gets its own
+// section instead of a line in the Fields list.
+const shortValueLimit = 80
+
+// customFields renders the custom fields of an issue: long text (HTML is
+// converted to markdown) and checklists as sections, other values as short
+// name/value pairs. Each is [name, markdown]. Empty values and objects
+// without a readable form are left out.
+func customFields(issue *jira.Issue, only []string) (sections, short [][2]string) {
+	f := issue.Fields
+	name := func(id string) string {
+		if n := issue.Names[id]; n != "" {
+			return n
+		}
+		return id
+	}
+
+	ids := make([]string, 0, len(f.Custom))
+	for id := range f.Custom {
+		ids = append(ids, id)
+	}
+	if len(only) > 0 {
+		ids = selectFields(ids, only, name)
+	} else {
+		sort.Slice(ids, func(i, j int) bool { return strings.ToLower(name(ids[i])) < strings.ToLower(name(ids[j])) })
+	}
+
+	for _, id := range ids {
+		v := f.Custom[id]
+		if items, ok := checklist(v); ok {
+			sections = append(sections, [2]string{name(id), items})
+			continue
+		}
+		if text, ok := v.(string); ok {
+			text = strings.TrimSpace(text)
+			if javaObject.MatchString(text) {
+				// Internal state such as the Development field's summary
+				// beans; keep only what simplifies (legacy sprint strings).
+				if sv, ok := jira.SimplifyValue(text).(string); ok && sv != text {
+					short = append(short, [2]string{name(id), sv})
+				}
+				continue
+			}
+			if rendered := renderedCustom(issue, id); rendered != "" {
+				text = htmlconv.Convert(rendered)
+			} else if strings.HasPrefix(text, "<") {
+				text = htmlconv.Convert(text)
+			}
+			if text == "" {
+				continue
+			}
+			if len(text) > shortValueLimit || strings.Contains(text, "\n") {
+				sections = append(sections, [2]string{name(id), text})
+			} else {
+				short = append(short, [2]string{name(id), text})
+			}
+			continue
+		}
+		if jira.SimplifyValue(v) == nil {
+			continue // empty, or an object without a readable form
+		}
+		short = append(short, [2]string{name(id), jira.DisplayValue(v)})
+	}
+	return sections, short
+}
+
+// javaObject matches Java toString() output that some fields return
+// (com.atlassian.…Bean@1a2b3c4d[...], ProjectComponentImpl { name='…' }).
+var javaObject = regexp.MustCompile(`com\.atlassian\.[\w.]+@[0-9a-f]+|\b\w+(?:Impl|Bean) ?\{ ?\w+=`)
+
+// selectFields returns the IDs matching refs (IDs or names, case-insensitive)
+// in the order of refs.
+func selectFields(ids, refs []string, name func(string) string) []string {
+	var out []string
+	for _, ref := range refs {
+		for _, id := range ids {
+			if strings.EqualFold(id, ref) || strings.EqualFold(name(id), ref) {
+				out = append(out, id)
+			}
+		}
+	}
+	return out
+}
+
+func renderedCustom(issue *jira.Issue, id string) string {
+	if issue.RenderedFields == nil {
+		return ""
+	}
+	return issue.RenderedFields.Custom[id]
+}
+
+// checklist renders checklist field values (lists of items with a name and
+// a checked flag, as stored by checklist apps) as a markdown task list.
+func checklist(v any) (string, bool) {
+	items, ok := v.([]any)
+	if !ok || len(items) == 0 {
+		return "", false
+	}
+	var sb strings.Builder
+	for _, it := range items {
+		m, ok := it.(map[string]any)
+		if !ok {
+			return "", false
+		}
+		label, okName := m["name"].(string)
+		checked, okChecked := m["checked"].(bool)
+		if !okName || !okChecked {
+			return "", false
+		}
+		switch {
+		case m["isHeader"] == true:
+			sb.WriteString("\n**" + label + "**\n\n")
+		case checked:
+			sb.WriteString("- [x] " + label + "\n")
+		default:
+			sb.WriteString("- [ ] " + label + "\n")
+		}
+	}
+	return strings.TrimSpace(sb.String()), true
 }
 
 // formatTime shortens Jira timestamps (2024-01-02T15:04:05.000+0000) to

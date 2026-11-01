@@ -96,3 +96,23 @@ func TestIssueFieldsRoundTrip(t *testing.T) {
 		t.Errorf("custom fields lost on round-trip (-first +second):\n%s", diff)
 	}
 }
+
+func TestRenderedFieldsCapturesCustomHTML(t *testing.T) {
+	t.Parallel()
+	raw := `{"description":"<p>d</p>","customfield_1":"<p>steps</p>","customfield_2":null,"customfield_3":"","environment":"<p>env</p>"}`
+	var r RenderedFields
+	if err := json.Unmarshal([]byte(raw), &r); err != nil {
+		t.Fatal(err)
+	}
+	if diff := cmp.Diff(map[string]string{"customfield_1": "<p>steps</p>"}, r.Custom); diff != "" {
+		t.Errorf("Custom diff (-want +got):\n%s", diff)
+	}
+	out, err := json.Marshal(r)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var back RenderedFields
+	if err := json.Unmarshal(out, &back); err != nil || back.Custom["customfield_1"] != "<p>steps</p>" {
+		t.Errorf("round trip lost custom fields: %s", out)
+	}
+}
