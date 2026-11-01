@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"text/tabwriter"
 
-	"github.com/putcho01/atlassian-cli/internal/confluence"
+	"github.com/zhani/atlassian-cli/internal/confluence"
 )
 
 // PrintPageList prints Confluence pages (search results, children, space

@@ -4,7 +4,7 @@ import (
 	"strings"
 
 	"github.com/charmbracelet/bubbles/table"
-	"github.com/putcho01/atlassian-cli/internal/jira"
+	"github.com/zhani/atlassian-cli/internal/jira"
 )
 
 // Fixed column widths; Summary takes the remaining space.

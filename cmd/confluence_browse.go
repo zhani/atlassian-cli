@@ -5,10 +5,10 @@ import (
 	"os"
 
 	"github.com/mattn/go-isatty"
-	"github.com/putcho01/atlassian-cli/internal/bookmarks"
-	"github.com/putcho01/atlassian-cli/internal/browser"
-	"github.com/putcho01/atlassian-cli/internal/tui"
 	"github.com/spf13/cobra"
+	"github.com/zhani/atlassian-cli/internal/bookmarks"
+	"github.com/zhani/atlassian-cli/internal/browser"
+	"github.com/zhani/atlassian-cli/internal/tui"
 )
 
 var confluenceBrowseCmd = &cobra.Command{

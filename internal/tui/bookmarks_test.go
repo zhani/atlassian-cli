@@ -8,7 +8,8 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/x/ansi"
-	"github.com/putcho01/atlassian-cli/internal/bookmarks"
+	"github.com/zhani/atlassian-cli/internal/bookmarks"
+	"github.com/zhani/atlassian-cli/internal/jira"
 )
 
 func tempStore(t *testing.T) *bookmarks.Store {
@@ -37,7 +38,7 @@ func TestIssueBrowserBookmarks(t *testing.T) {
 	m.opts.Caption = "My work"
 
 	m = press(m, "down")
-	m = press(m, "B")
+	m = press(m, "b")
 	if m.status != "Bookmarked PROJ-2 Second issue" || m.statusErr {
 		t.Errorf("status %q", m.status)
 	}
@@ -52,7 +53,7 @@ func TestIssueBrowserBookmarks(t *testing.T) {
 
 	// B again removes it, also from the detail view.
 	m = press(m, "enter")
-	m = press(m, "B")
+	m = press(m, "b")
 	if !strings.HasPrefix(m.status, "Removed bookmark PROJ-2") {
 		t.Errorf("status %q", m.status)
 	}
@@ -64,7 +65,7 @@ func TestIssueBrowserBookmarks(t *testing.T) {
 func TestIssueBrowserWithoutBookmarks(t *testing.T) {
 	t.Parallel()
 	_, m := newHarness(t)
-	m = press(m, "B")
+	m = press(m, "b")
 	if m.status != "" {
 		t.Errorf("B without a store: %q", m.status)
 	}
@@ -93,7 +94,7 @@ func TestExplorerBookmarksSidebarItem(t *testing.T) {
 	_, m := newTestExplorer(t)
 	m.opts.Kind = bookmarks.Feature
 	m.opts.Issues.Bookmarks = store
-	m = pressExplorer(m, "B")
+	m = pressExplorer(m, "b")
 	if !m.statusOK || !strings.Contains(m.status, "Bookmarked F-1") {
 		t.Errorf("status %q ok=%v", m.status, m.statusOK)
 	}
@@ -107,7 +108,7 @@ func TestPageTreeBookmarksPage(t *testing.T) {
 	store := tempStore(t)
 	m := newTree(context.Background(), TreeOptions{Source: &fakePages{}, Space: "DEV", Bookmarks: store}, plainRenderer)
 	m = drainTree(m, m.Init())
-	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("B")})
+	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("b")})
 	m = next.(treeModel)
 	if m.statusErr || !strings.Contains(m.status, "Bookmarked") {
 		t.Errorf("status %q", m.status)
@@ -294,5 +295,145 @@ func TestBookmarkBrowserEmpty(t *testing.T) {
 	m = pressBM(m, "enter", "d")
 	if m.chosen != nil || m.deleting {
 		t.Error("actions on an empty list")
+	}
+}
+
+func seededAllKinds(t *testing.T) *bookmarks.Store {
+	t.Helper()
+	s := tempStore(t)
+	for _, b := range []bookmarks.Bookmark{
+		{Kind: bookmarks.Issue, Key: "PROJ-3", Title: "Third issue"},
+		{Kind: bookmarks.Query, Name: "Done work", JQL: "status = Done"},
+		{Kind: bookmarks.Epic, Key: "E-1", Title: "Payments"},
+		{Kind: bookmarks.Page, Key: "2", Title: "Child", Space: "DEV"},
+	} {
+		if err := s.Add(b); err != nil {
+			t.Fatal(err)
+		}
+	}
+	return s
+}
+
+func TestIssueBrowserBookmarkPicker(t *testing.T) {
+	t.Parallel()
+	h, m := newHarness(t)
+	m.opts.Bookmarks = seededAllKinds(t)
+	var resolved []string
+	m.opts.ResolveBookmark = func(_ context.Context, b bookmarks.Bookmark) (BookmarkView, error) {
+		resolved = append(resolved, b.Key)
+		return BookmarkView{JQL: "epic " + b.Key, Caption: "Issues of " + b.Key}, nil
+	}
+	h.src.byJQL = map[string][]jira.Issue{"status = Done": testIssues()[2:], "epic E-1": testIssues()[:1]}
+
+	if !strings.Contains(m.footerView(), "b bookmark") || !strings.Contains(m.footerView(), "B bookmarks") {
+		t.Errorf("help line: %s", m.footerView())
+	}
+	m = press(m, "B")
+	if m.picker == nil {
+		t.Fatal("picker not open")
+	}
+	// Pages cannot be shown in the issue browser.
+	if len(m.picker.all) != 3 || strings.Contains(m.View(), "Child") {
+		t.Errorf("picker lists %d:\n%s", len(m.picker.all), m.View())
+	}
+	// q closes the picker only.
+	m = press(m, "q")
+	if m.picker != nil || m.quitting {
+		t.Fatalf("q: picker %v quitting %v", m.picker != nil, m.quitting)
+	}
+
+	// An issue opens in the detail view.
+	m = press(m, "B", "enter")
+	if m.mode != modeDetail || m.detailKey != "PROJ-3" {
+		t.Errorf("issue: mode %v key %s", m.mode, m.detailKey)
+	}
+	// A query replaces the list.
+	m = press(m, "esc", "B", "down", "enter")
+	if m.opts.JQL != "status = Done" || m.opts.Caption != "Done work" || len(m.issues) != 1 {
+		t.Errorf("query: jql %q caption %q issues %d", m.opts.JQL, m.opts.Caption, len(m.issues))
+	}
+	// An epic is resolved by the command layer.
+	m = press(m, "B", "/", "e", "-", "1", "enter")
+	if len(resolved) != 1 || m.opts.JQL != "epic E-1" || m.selectedKey() != "PROJ-1" {
+		t.Errorf("epic: resolved %v jql %q", resolved, m.opts.JQL)
+	}
+}
+
+func TestExplorerBookmarkPicker(t *testing.T) {
+	t.Parallel()
+	src, m := newTestExplorer(t)
+	m.opts.Issues.Bookmarks = seededAllKinds(t)
+	m.right.opts.Bookmarks = m.opts.Issues.Bookmarks
+	src.byJQL["status = Done"] = []jira.Issue{issue("D-1", "Story", "done")}
+	m = pressExplorer(m, "B") // from the sidebar
+	if m.right.picker == nil || !m.focusRight {
+		t.Fatal("picker not open in the issue pane")
+	}
+	m = pressExplorer(m, "j") // keys go to the picker, not the sidebar
+	m = pressExplorer(m, "enter")
+	if m.right.picker != nil || m.right.opts.JQL != "status = Done" {
+		t.Errorf("jql %q", m.right.opts.JQL)
+	}
+	if got := rightKeys(m); len(got) != 1 || got[0] != "D-1" {
+		t.Errorf("issues %v", got)
+	}
+}
+
+func TestPageTreeBookmarkPicker(t *testing.T) {
+	t.Parallel()
+	store := tempStore(t)
+	for _, b := range []bookmarks.Bookmark{
+		{Kind: bookmarks.Issue, Key: "A-1"},
+		{Kind: bookmarks.Page, Key: "3", Title: "Deep dive", Space: "DEV"},
+		{Kind: bookmarks.Page, Key: "2", Title: "Child", Space: "DEV"},
+	} {
+		if err := store.Add(b); err != nil {
+			t.Fatal(err)
+		}
+	}
+	src := &spacePages{}
+	m := newTree(context.Background(), TreeOptions{Source: src, Space: "DEV", Bookmarks: store}, plainRenderer)
+	m = drainTree(m, m.Init())
+	if v := m.footerView(); !strings.Contains(v, "b bookmark") || !strings.Contains(v, "B bookmarks") {
+		t.Errorf("help line: %s", v)
+	}
+
+	m = pressTree(m, "B")
+	if m.picker == nil || len(m.picker.all) != 2 {
+		t.Fatalf("picker: %+v", m.picker)
+	}
+	// Deep dive (under the collapsed Child) is found by loading the space.
+	m = pressTree(m, "enter")
+	if n := m.selected(); n == nil || n.id != "3" || m.shownID != "3" {
+		t.Fatalf("selected %+v shown %s", n, m.shownID)
+	}
+	if !strings.Contains(strings.Join(src.calls, ","), "space DEV") {
+		t.Errorf("calls %v", src.calls)
+	}
+	// A loaded page is selected directly.
+	src.calls = nil
+	m = pressTree(m, "B", "j", "enter")
+	if n := m.selected(); n.id != "2" || strings.Contains(strings.Join(src.calls, ","), "space") {
+		t.Errorf("selected %s calls %v", n.id, src.calls)
+	}
+}
+
+func TestPageTreePickerSwitchesSpace(t *testing.T) {
+	t.Parallel()
+	store := tempStore(t)
+	if err := store.Add(bookmarks.Bookmark{Kind: bookmarks.Page, Key: "3", Title: "Deep dive"}); err != nil {
+		t.Fatal(err)
+	}
+	src := &spacePages{}
+	// Browsing page 7's subtree: page 3 is elsewhere; its space comes from
+	// the page itself (the bookmark has none).
+	m := newTree(context.Background(), TreeOptions{Source: src, PageID: "7", Bookmarks: store}, plainRenderer)
+	m = drainTree(m, m.Init())
+	m = pressTree(m, "B", "enter")
+	if m.opts.PageID != "" || m.opts.Space != "DEV" {
+		t.Errorf("tree not switched: %+v", m.opts)
+	}
+	if n := m.selected(); n == nil || n.id != "3" {
+		t.Errorf("selected %+v (roots %s)", n, titles(m.roots))
 	}
 }

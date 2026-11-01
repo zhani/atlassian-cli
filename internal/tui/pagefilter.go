@@ -12,7 +12,7 @@ import (
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
-	"github.com/putcho01/atlassian-cli/internal/confluence"
+	"github.com/zhani/atlassian-cli/internal/confluence"
 )
 
 // Live fuzzy filtering of the page tree (/), like the fuzzy finder of
@@ -81,14 +81,18 @@ func (m *treeModel) loadSpaceTrees() tea.Cmd {
 		if space == "" || m.spaceLoaded[space] || m.spaceLoading[space] || (n.isSpace && !n.loaded) {
 			continue // only spaces the user has opened
 		}
-		m.spaceLoading[space] = true
-		ctx := m.ctx
-		cmds = append(cmds, func() tea.Msg {
-			pages, err := src.SpacePages(ctx, space, maxSpacePages)
-			return spaceTreeMsg{space: space, pages: pages, err: err}
-		})
+		cmds = append(cmds, m.loadSpaceTree(src, space))
 	}
 	return tea.Batch(cmds...)
+}
+
+func (m *treeModel) loadSpaceTree(src SpaceTreeSource, space string) tea.Cmd {
+	m.spaceLoading[space] = true
+	ctx := m.ctx
+	return func() tea.Msg {
+		pages, err := src.SpacePages(ctx, space, maxSpacePages)
+		return spaceTreeMsg{space: space, pages: pages, err: err}
+	}
 }
 
 // mergeSpaceTree adds the pages of a space that are not in the tree yet

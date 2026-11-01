@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/putcho01/atlassian-cli/internal/htmlconv"
+	"github.com/zhani/atlassian-cli/internal/htmlconv"
 )
 
 func TestToStorage(t *testing.T) {

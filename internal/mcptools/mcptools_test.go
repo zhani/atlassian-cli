@@ -7,7 +7,7 @@ import (
 
 	"github.com/google/go-cmp/cmp"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
-	"github.com/putcho01/atlassian-cli/internal/jira"
+	"github.com/zhani/atlassian-cli/internal/jira"
 )
 
 // listTools starts a server with the given groups and returns the names of

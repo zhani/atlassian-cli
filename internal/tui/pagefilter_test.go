@@ -7,7 +7,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/x/ansi"
-	"github.com/putcho01/atlassian-cli/internal/confluence"
+	"github.com/zhani/atlassian-cli/internal/confluence"
 )
 
 // filterTree is a page tree with a loaded but collapsed subtree:
@@ -267,4 +267,12 @@ func TestMergeSpaceTreeInPageSubtree(t *testing.T) {
 	if got := titles(m.allNodes()); got != "Page 2,Deep dive" {
 		t.Errorf("subtree = %s", got)
 	}
+}
+
+func (f *spacePages) GetPage(ctx context.Context, id string, expand []string) (*confluence.Page, error) {
+	p, err := f.fakePages.GetPage(ctx, id, expand)
+	if p != nil {
+		p.Space = &confluence.Space{Key: "DEV"}
+	}
+	return p, err
 }

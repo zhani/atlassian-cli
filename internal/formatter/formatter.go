@@ -9,9 +9,9 @@ import (
 	"strings"
 	"text/tabwriter"
 
-	"github.com/putcho01/atlassian-cli/internal/confluence"
-	"github.com/putcho01/atlassian-cli/internal/htmlconv"
-	"github.com/putcho01/atlassian-cli/internal/jira"
+	"github.com/zhani/atlassian-cli/internal/confluence"
+	"github.com/zhani/atlassian-cli/internal/htmlconv"
+	"github.com/zhani/atlassian-cli/internal/jira"
 )
 
 type Format string

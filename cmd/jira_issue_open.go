@@ -1,8 +1,8 @@
 package cmd
 
 import (
-	"github.com/putcho01/atlassian-cli/internal/browser"
 	"github.com/spf13/cobra"
+	"github.com/zhani/atlassian-cli/internal/browser"
 )
 
 var jiraIssueOpenCmd = &cobra.Command{

@@ -3,6 +3,7 @@ package tui
 import (
 	"context"
 	"fmt"
+	"slices"
 	"sort"
 	"strings"
 
@@ -12,7 +13,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/x/ansi"
-	"github.com/putcho01/atlassian-cli/internal/bookmarks"
+	"github.com/zhani/atlassian-cli/internal/bookmarks"
 )
 
 // BookmarkStore is the bookmark file as the bookmark browser uses it;
@@ -26,7 +27,8 @@ type BookmarkStore interface {
 // BookmarkOptions configures the bookmark browser.
 type BookmarkOptions struct {
 	Store    BookmarkStore
-	Selected string // ID of the bookmark selected at start
+	Selected string           // ID of the bookmark selected at start
+	Kinds    []bookmarks.Kind // only these kinds; none: all
 
 	// Message is shown in the status line at start (e.g. why opening the
 	// last bookmark failed).
@@ -81,6 +83,7 @@ type bookmarkModel struct {
 	chosen        *bookmarks.Bookmark
 	width, height int
 	quitting      bool
+	embedded      bool // a picker inside another view: closing does not quit
 }
 
 func newBookmarkModel(opts BookmarkOptions) bookmarkModel {
@@ -101,7 +104,12 @@ func (m *bookmarkModel) reload(selectID string) {
 	if err != nil {
 		m.setStatus(err.Error(), true)
 	}
-	m.all = list
+	m.all = list[:0:0]
+	for _, b := range list {
+		if len(m.opts.Kinds) == 0 || slices.Contains(m.opts.Kinds, b.Kind) {
+			m.all = append(m.all, b)
+		}
+	}
 	m.applyFilter()
 	m.selectID(selectID)
 }
@@ -209,6 +217,14 @@ func (m *bookmarkModel) move(to int) {
 
 func (m bookmarkModel) Init() tea.Cmd { return nil }
 
+// quit ends the bookmark browser, or just closes it as a picker.
+func (m bookmarkModel) quit() tea.Cmd {
+	if m.embedded {
+		return nil
+	}
+	return tea.Quit
+}
+
 func (m bookmarkModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
@@ -224,7 +240,7 @@ func (m bookmarkModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 func (m bookmarkModel) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	if key.Matches(msg, keys.forceQuit) {
 		m.quitting = true
-		return m, tea.Quit
+		return m, tea.Quit // ctrl+c leaves the whole program
 	}
 	if m.filtering {
 		return m.handleFilterKey(msg)
@@ -271,9 +287,9 @@ func (m bookmarkModel) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	m.status = ""
 	b, ok := m.selected()
 	switch {
-	case key.Matches(msg, keys.quit):
+	case key.Matches(msg, keys.quit), m.embedded && key.Matches(msg, keys.back):
 		m.quitting = true
-		return m, tea.Quit
+		return m, m.quit()
 	case key.Matches(msg, keys.help):
 		m.help.ShowAll = !m.help.ShowAll
 		m.layout()
@@ -300,7 +316,7 @@ func (m bookmarkModel) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case key.Matches(msg, bmKeys.open):
 		m.chosen = &b
 		m.quitting = true
-		return m, tea.Quit
+		return m, m.quit()
 	case key.Matches(msg, bmKeys.web), key.Matches(msg, keys.copyURL):
 		if b.URL == "" {
 			m.setStatus("No web link for "+b.Label(), true)
@@ -358,7 +374,7 @@ func (m bookmarkModel) handleFilterKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		m.chosen = &b
 		m.quitting = true
-		return m, tea.Quit
+		return m, m.quit()
 	case key.Matches(msg, filterKeys.prev):
 		if len(m.visible) > 0 {
 			m.move((m.cursor - 1 + len(m.visible)) % len(m.visible))
@@ -386,15 +402,19 @@ func (m bookmarkModel) View() string {
 	if m.quitting {
 		return ""
 	}
-	title := styleTitle.Render(fmt.Sprintf(" Bookmarks (%d)", len(m.all)))
+	name := "Bookmarks"
+	if len(m.opts.Kinds) == 1 {
+		name = "Bookmarked " + string(m.opts.Kinds[0]) + "s"
+	}
+	title := styleTitle.Render(fmt.Sprintf(" %s (%d)", name, len(m.all)))
 	if len(m.visible) != len(m.all) {
-		title = styleTitle.Render(fmt.Sprintf(" Bookmarks (%d of %d)", len(m.visible), len(m.all)))
+		title = styleTitle.Render(fmt.Sprintf(" %s (%d of %d)", name, len(m.visible), len(m.all)))
 	}
 	rows := m.listRows()
 	var body string
 	switch {
 	case len(m.all) == 0:
-		body = styleDim.Render("\n No bookmarks yet. Press B in the issue, explorer or page browsers,\n" +
+		body = styleDim.Render("\n No bookmarks yet. Press b in the issue, explorer or page browsers,\n" +
 			" S in an issue list to save its query, or use `atlassian-cli bookmark add`.")
 	default:
 		body = m.listView(rows)
@@ -473,11 +493,15 @@ func (m bookmarkModel) helpKeys() helpKeys {
 		b := []key.Binding{filterKeys.next, filterKeys.prev, bmKeys.open, filterKeys.cancel}
 		return helpKeys{short: b, full: [][]key.Binding{b}}
 	}
-	short := []key.Binding{bmKeys.open, bmKeys.web, bmKeys.rename, bmKeys.del, keys.filter, keys.help, keys.quit}
+	quit := keys.quit
+	if m.embedded {
+		quit = key.NewBinding(key.WithKeys("q", "esc"), key.WithHelp("q/esc", "close"))
+	}
+	short := []key.Binding{bmKeys.open, bmKeys.web, bmKeys.rename, bmKeys.del, keys.filter, keys.help, quit}
 	return helpKeys{short: short, full: [][]key.Binding{
 		{keys.up, keys.down, keys.pageUp, keys.pageDown, keys.top, keys.bottom},
 		{bmKeys.open, bmKeys.web, keys.copyURL, keys.copyKey, bmKeys.rename, bmKeys.del},
-		{keys.filter, keys.help, keys.quit},
+		{keys.filter, keys.help, quit},
 	}}
 }
 

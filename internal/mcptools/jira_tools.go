@@ -10,9 +10,9 @@ import (
 	"strings"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
-	"github.com/putcho01/atlassian-cli/internal/config"
-	"github.com/putcho01/atlassian-cli/internal/jira"
-	"github.com/putcho01/atlassian-cli/internal/mdconv"
+	"github.com/zhani/atlassian-cli/internal/config"
+	"github.com/zhani/atlassian-cli/internal/jira"
+	"github.com/zhani/atlassian-cli/internal/mdconv"
 )
 
 // --- Input types ---

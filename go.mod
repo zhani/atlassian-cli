@@ -1,4 +1,4 @@
-module github.com/putcho01/atlassian-cli
+module github.com/zhani/atlassian-cli
 
 go 1.25.0
 

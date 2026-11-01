@@ -8,8 +8,8 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/putcho01/atlassian-cli/internal/config"
-	"github.com/putcho01/atlassian-cli/internal/httpclient"
+	"github.com/zhani/atlassian-cli/internal/config"
+	"github.com/zhani/atlassian-cli/internal/httpclient"
 )
 
 // Client is a Jira REST API v2 client.

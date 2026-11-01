@@ -1,18 +1,19 @@
 package cmd
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"regexp"
 	"strconv"
 	"strings"
 
-	"github.com/putcho01/atlassian-cli/internal/bookmarks"
-	"github.com/putcho01/atlassian-cli/internal/browser"
-	"github.com/putcho01/atlassian-cli/internal/config"
-	"github.com/putcho01/atlassian-cli/internal/jira"
-	"github.com/putcho01/atlassian-cli/internal/tui"
 	"github.com/spf13/cobra"
+	"github.com/zhani/atlassian-cli/internal/bookmarks"
+	"github.com/zhani/atlassian-cli/internal/browser"
+	"github.com/zhani/atlassian-cli/internal/config"
+	"github.com/zhani/atlassian-cli/internal/jira"
+	"github.com/zhani/atlassian-cli/internal/tui"
 )
 
 var bookmarkCmd = &cobra.Command{
@@ -27,9 +28,9 @@ bookmark in the matching view (issue view, issue list, feature/epic/sprint
 issues or the page tree) and quitting that view returns to the bookmarks.
 Elsewhere the bookmarks are listed.
 
-Add bookmarks with ` + "`bookmark add`" + `, or press B on an issue, a feature/epic/sprint
+Add bookmarks with ` + "`bookmark add`" + `, or press b on an issue, a feature/epic/sprint
 in the explorers or a page in ` + "`confluence browse`" + `; S in an issue list
-bookmarks its query. They are kept in ATLASSIAN_BOOKMARKS or
+bookmarks its query. B in those browsers picks a bookmark to show there. They are kept in ATLASSIAN_BOOKMARKS or
 ~/.config/atlassian-cli/bookmarks.yaml (` + "`bookmark edit`" + ` opens it in $EDITOR).
 
 Bookmarks are referred to by number (as listed), name, key or ID.`,
@@ -347,4 +348,37 @@ func init() {
 	bookmarkOpenCmd.Flags().Bool("web", false, "Open in the web browser")
 	bookmarkCmd.AddCommand(bookmarkListCmd, bookmarkAddCmd, bookmarkRemoveCmd, bookmarkRenameCmd, bookmarkEditCmd, bookmarkOpenCmd, bookmarkPathCmd)
 	rootCmd.AddCommand(bookmarkCmd)
+}
+
+// bookmarkView returns the issues a feature, epic or sprint bookmark shows
+// in the issue browser (for the bookmark picker, B).
+func bookmarkView(ctx context.Context, client *jira.Client, cfg *config.AtlassianConfig, b bookmarks.Bookmark) (tui.BookmarkView, error) {
+	caption := b.Label()
+	switch b.Kind {
+	case bookmarks.Epic:
+		return tui.BookmarkView{JQL: client.EpicChildrenJQL(b.Key, cfg.EpicLinkField), Caption: "Issues of " + caption}, nil
+	case bookmarks.Sprint:
+		id, err := strconv.Atoi(b.Key)
+		if err != nil {
+			return tui.BookmarkView{}, fmt.Errorf("sprint ID must be a number, got %q", b.Key)
+		}
+		return tui.BookmarkView{JQL: fmt.Sprintf("sprint = %d ORDER BY rank ASC", id), Caption: caption}, nil
+	case bookmarks.Feature:
+		phrases := cfg.FeatureLinkTypes
+		if len(phrases) == 0 {
+			phrases = config.DefaultFeatureLinkTypes
+		}
+		f, err := client.GetIssue(ctx, b.Key)
+		if err != nil {
+			return tui.BookmarkView{}, err
+		}
+		keys, relation := jira.LinkedChildren(f, phrases)
+		if len(keys) == 0 {
+			return tui.BookmarkView{}, fmt.Errorf("no issues linked as %s", strings.Join(phrases, " / "))
+		}
+		return tui.BookmarkView{JQL: jira.KeysJQL(keys), Caption: f.Key + "  " + f.Fields.Summary, AnnotationTitle: "Link", Annotations: relation}, nil
+	case bookmarks.Query:
+		return tui.BookmarkView{JQL: b.JQL, Caption: caption}, nil
+	}
+	return tui.BookmarkView{}, fmt.Errorf("%s bookmarks cannot be shown as issues", b.Kind)
 }

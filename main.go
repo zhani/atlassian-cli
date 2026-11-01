@@ -3,7 +3,7 @@
 //
 // # Installation
 //
-//	go install github.com/putcho01/atlassian-cli@latest
+//	go install github.com/zhani/atlassian-cli@latest
 //
 // # Configuration
 //
@@ -31,7 +31,7 @@ package main
 import (
 	"os"
 
-	"github.com/putcho01/atlassian-cli/cmd"
+	"github.com/zhani/atlassian-cli/cmd"
 )
 
 func main() {

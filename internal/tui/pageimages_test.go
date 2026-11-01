@@ -13,8 +13,8 @@ import (
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/putcho01/atlassian-cli/internal/confluence"
-	"github.com/putcho01/atlassian-cli/internal/termimg"
+	"github.com/zhani/atlassian-cli/internal/confluence"
+	"github.com/zhani/atlassian-cli/internal/termimg"
 )
 
 func TestExtractImages(t *testing.T) {
