@@ -57,6 +57,15 @@ func (c *Client) ListBoards(ctx context.Context, project string) ([]Board, error
 	return collectAgile[Board](ctx, c, "/rest/agile/1.0/board", q)
 }
 
+// GetSprint returns a sprint by ID.
+func (c *Client) GetSprint(ctx context.Context, id int) (*Sprint, error) {
+	var sp Sprint
+	if err := c.http.Do(ctx, "GET", "/rest/agile/1.0/sprint/"+strconv.Itoa(id), nil, nil, &sp); err != nil {
+		return nil, err
+	}
+	return &sp, nil
+}
+
 // ListSprints returns the sprints of a board in the given states (future,
 // active, closed; none means all), ordered by start date.
 func (c *Client) ListSprints(ctx context.Context, boardID int, states ...string) ([]Sprint, error) {

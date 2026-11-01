@@ -80,3 +80,19 @@ func TestLinkedChildren(t *testing.T) {
 		t.Error("no keys should give empty JQL")
 	}
 }
+
+func TestGetSprint(t *testing.T) {
+	t.Parallel()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/rest/agile/1.0/sprint/42" {
+			t.Errorf("request = %s", r.URL)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.Write([]byte(`{"id":42,"name":"Sprint 42","state":"active"}`))
+	}))
+	defer srv.Close()
+	got, err := newTestJiraClient(srv.URL).GetSprint(context.Background(), 42)
+	if err != nil || got.Name != "Sprint 42" || got.State != "active" {
+		t.Errorf("GetSprint() = %+v, %v", got, err)
+	}
+}

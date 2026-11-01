@@ -47,6 +47,12 @@ type Options struct {
 	// DetailFields limits the custom fields of the detail view (names or
 	// IDs, in order); empty shows all non-empty ones.
 	DetailFields []string
+
+	// Bookmarks enables B (bookmark the issue) and S (bookmark the query).
+	Bookmarks Bookmarker
+
+	// OpenDetail starts in the detail view of this issue.
+	OpenDetail string
 }
 
 type mode int
@@ -123,6 +129,7 @@ type model struct {
 
 	pendingSelect string        // issue to select once the next result arrives
 	extraHelp     []key.Binding // bindings of an enclosing view (explorer)
+	initCmd       tea.Cmd
 }
 
 func newModel(ctx context.Context, opts Options, render markdownRenderer) model {
@@ -154,10 +161,15 @@ func newModel(ctx context.Context, opts Options, render markdownRenderer) model 
 	}
 	m.applyFilter()
 	m.layout()
+	if opts.OpenDetail != "" {
+		m.mode, m.detailKey = modeDetail, opts.OpenDetail
+		m.refreshDetailContent()
+		m.initCmd = tea.Batch(m.startLoading(), m.loadIssue(opts.OpenDetail))
+	}
 	return m
 }
 
-func (m model) Init() tea.Cmd { return nil }
+func (m model) Init() tea.Cmd { return m.initCmd }
 
 func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
@@ -296,7 +308,14 @@ func (m model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		case key.Matches(msg, keys.transition):
 			cmd := tea.Batch(m.startLoading(), m.loadTransitions(issueKey))
 			return m, cmd
+		case m.opts.Bookmarks != nil && key.Matches(msg, bookmarkKeys.toggle):
+			m.setStatus(toggleBookmark(m.opts.Bookmarks, m.issueBookmark(issueKey)))
+			return m, nil
 		}
+	}
+	if m.mode == modeList && m.opts.Bookmarks != nil && m.opts.JQL != "" && key.Matches(msg, bookmarkKeys.saveQuery) {
+		m.setStatus(toggleBookmark(m.opts.Bookmarks, m.queryBookmark()))
+		return m, nil
 	}
 
 	if m.mode == modeDetail {
