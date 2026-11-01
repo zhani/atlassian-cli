@@ -133,6 +133,13 @@ func (p *Preview) Run() error {
 	}
 }
 
+// tmuxSettle is how long tmux gets to redraw a cleared pane before an image
+// is sent through passthrough.
+var tmuxSettle = 150 * time.Millisecond
+
+// maxUpscale is how much the preview enlarges small images.
+const maxUpscale = 3
+
 // draw shows the current item; it returns the kitty image ID it created.
 func (p *Preview) draw(out io.Writer) (kittyID uint32) {
 	item := p.Items[p.Index]
@@ -146,41 +153,72 @@ func (p *Preview) draw(out io.Writer) (kittyID uint32) {
 	imgW, imgH := item.Image.Size()
 	avail := max(1, rows-1)
 
-	var sb strings.Builder
-	sb.WriteString("\x1b[H\x1b[2J")
+	// The cell box of the image, enlarging small images up to maxUpscale.
+	var c, r int
 	switch p.Caps.Preview {
 	case Kitty:
-		c, r := Fit(imgW, imgH, min(cols, MaxKittyCells), min(avail, MaxKittyCells), cellW, cellH)
+		c, r = Fit(imgW*maxUpscale, imgH*maxUpscale, min(cols, MaxKittyCells), min(avail, MaxKittyCells), cellW, cellH)
+	case ITerm, Sixel:
+		c, r = Fit(imgW*maxUpscale, imgH*maxUpscale, cols, avail, cellW, cellH)
+	default:
+		c, r = Fit(imgW, imgH, cols, avail, 2, max(2, 2*cellH/max(1, cellW)))
+	}
+	left := (cols-c)/2 + 1
+
+	// Encode first: Sixel may come out smaller than the box (it is shrunk
+	// to fit tmux's limit), and is centered by its final size.
+	var image string
+	switch p.Caps.Preview {
+	case ITerm, Sixel:
+		// Pixel size of the box at the image's aspect ratio.
+		h := max(1, min(r*cellH, c*cellW*imgH/imgW))
+		w := max(1, h*imgW/imgH)
+		limit := p.Caps.SeqLimit()
+		if p.Caps.Preview == ITerm {
+			// The terminal scales the image to the box: never send more
+			// pixels than the image has.
+			if w > imgW {
+				w, h = imgW, imgH
+			}
+			image = p.Caps.Wrap(ITermSized(item.Image, w, h, c, r, limit), false)
+		} else {
+			seq, fw, _ := SixelSized(item.Image, w, h, limit)
+			image = p.Caps.Wrap(seq, p.Caps.TmuxSixel)
+			left = (cols-min(cols, (fw+cellW-1)/max(1, cellW)))/2 + 1
+		}
+	}
+
+	// Clear the screen, show the caption and move the cursor to where the
+	// image goes. tmux drops passthrough sequences that arrive while a
+	// redraw of the pane is pending (as after a clear), and passthrough
+	// images are drawn wherever tmux last put the terminal's cursor, so
+	// inside tmux the image follows after a pause.
+	caption := fmt.Sprintf(" [%d/%d] %s (%d×%d)   n/p: next/previous · esc: back", p.Index+1, len(p.Items), item.Title, imgW, imgH)
+	if r := []rune(caption); len(r) > cols {
+		caption = string(r[:cols])
+	}
+	io.WriteString(out, fmt.Sprintf("\x1b[H\x1b[2J\x1b[%d;1H\x1b[7m%s\x1b[0m\x1b[1;%dH", rows, caption, left)) //nolint:errcheck
+	if p.Caps.Tmux {
+		time.Sleep(tmuxSettle)
+	}
+
+	var sb strings.Builder
+	switch p.Caps.Preview {
+	case Kitty:
 		kittyID = NewKittyID()
 		for _, s := range KittyTransmit(kittyID, item.Image.PNG, c, r) {
 			sb.WriteString(p.Caps.Wrap(s, false))
 		}
 		for i, line := range KittyPlaceholders(kittyID, c, r) {
-			fmt.Fprintf(&sb, "\x1b[%d;%dH%s", i+1, (cols-c)/2+1, line)
+			fmt.Fprintf(&sb, "\x1b[%d;%dH%s", i+1, left, line)
 		}
 	case ITerm, Sixel:
-		c, r := Fit(imgW, imgH, cols, avail, cellW, cellH)
-		w := min(imgW, c*cellW)
-		h := max(1, min(r*cellH, w*imgH/imgW))
-		w = max(1, h*imgW/imgH)
-		fmt.Fprintf(&sb, "\x1b[1;%dH", (cols-c)/2+1)
-		limit := p.Caps.SeqLimit()
-		if p.Caps.Preview == ITerm {
-			sb.WriteString(p.Caps.Wrap(ITermSized(item.Image, w, h, c, r, limit), false))
-		} else {
-			sb.WriteString(p.Caps.Wrap(SixelSized(item.Image, w, h, limit), p.Caps.TmuxSixel))
-		}
+		sb.WriteString(image)
 	default:
-		c, r := Fit(imgW, imgH, cols, avail, 2, max(2, 2*cellH/max(1, cellW)))
 		for i, line := range HalfBlocks(item.Image, c, r) {
-			fmt.Fprintf(&sb, "\x1b[%d;%dH%s", i+1, (cols-c)/2+1, line)
+			fmt.Fprintf(&sb, "\x1b[%d;%dH%s", i+1, left, line)
 		}
 	}
-	caption := fmt.Sprintf(" [%d/%d] %s (%d×%d)   n/p: next/previous · esc: back", p.Index+1, len(p.Items), item.Title, imgW, imgH)
-	if r := []rune(caption); len(r) > cols {
-		caption = string(r[:cols])
-	}
-	fmt.Fprintf(&sb, "\x1b[%d;1H\x1b[2K\x1b[7m%s\x1b[0m", rows, caption)
 	io.WriteString(out, sb.String()) //nolint:errcheck
 	return kittyID
 }

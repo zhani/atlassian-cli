@@ -99,6 +99,27 @@ func gradientImage() []byte {
 	return encodePNG(img)
 }
 
+// screenshotImage draws a large, noisy image like a real screenshot or
+// photo: its PNG is well over tmux's 1 MiB escape sequence limit.
+func screenshotImage() []byte {
+	img := image.NewRGBA(image.Rect(0, 0, 1920, 1080))
+	seed := uint32(7)
+	for y := 0; y < 1080; y++ {
+		for x := 0; x < 1920; x++ {
+			seed = seed*1664525 + 1013904223
+			n := int(seed>>27) - 16
+			c := func(v int) uint8 { return uint8(min(255, max(0, v+n))) }
+			img.Set(x, y, color.RGBA{c(x * 255 / 1920), c(80 + y*120/1080), c(200 - x*150/1920), 255})
+		}
+	}
+	for i := 0; i < 6; i++ { // "windows"
+		r := image.Rect(120+i*280, 150+(i%2)*380, 380+i*280, 450+(i%2)*380)
+		fill(img, r, color.RGBA{245, 245, 245, 255})
+		frame(img, r, 6, color.RGBA{30, 30, 50, 255})
+	}
+	return encodePNG(img)
+}
+
 func encodePNG(img image.Image) []byte {
 	var buf bytes.Buffer
 	if err := png.Encode(&buf, img); err != nil {
@@ -121,6 +142,7 @@ func (s *store) attachDemoImages(pageID string) map[string]string {
 		{"architecture.png", "image/png", architectureImage()},
 		{"chart.jpg", "image/jpeg", chartImage()},
 		{"gradient.png", "image/png", gradientImage()},
+		{"screenshot.png", "image/png", screenshotImage()},
 	}
 	links := map[string]string{}
 	for _, f := range files {

@@ -137,10 +137,12 @@ func (c Caps) choose(term string, sixel bool) Caps {
 	switch {
 	case strings.Contains(term, "kitty") || strings.Contains(term, "ghostty"):
 		c.InPage, c.Preview = Kitty, Kitty
+	case strings.Contains(term, "wezterm") && (!c.Tmux || c.Passthrough):
+		// iTerm2 images are scaled by the terminal, so a picture that must
+		// be compressed for tmux still fills the screen (Sixel would shrink).
+		c.InPage, c.Preview = Blocks, ITerm
 	case c.Tmux && c.TmuxSixel:
 		c.InPage, c.Preview = Blocks, Sixel
-	case strings.Contains(term, "wezterm"):
-		c.InPage, c.Preview = Blocks, ITerm
 	case sixel || strings.Contains(term, "foot"):
 		c.InPage, c.Preview = Blocks, Sixel
 	default:

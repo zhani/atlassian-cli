@@ -235,7 +235,7 @@ func sixelRun(sb *strings.Builder, row []byte) {
 // the sequence is at most limit bytes (0: no limit). tmux drops escape
 // sequences longer than its input-buffer-size. enc gets the attempt number;
 // the first formats attempts try other encodings at the same size.
-func fitSequence(img *Image, w, h, limit, formats int, enc func(px *image.RGBA, attempt int) string) string {
+func fitSequence(img *Image, w, h, limit, formats int, enc func(px *image.RGBA, attempt int) string) (seq string, finalW, finalH int) {
 	w, h = max(1, w), max(1, h)
 	for attempt := 0; ; attempt++ {
 		px := img.RGBA
@@ -244,7 +244,7 @@ func fitSequence(img *Image, w, h, limit, formats int, enc func(px *image.RGBA, 
 		}
 		seq := enc(px, min(attempt, formats-1))
 		if limit <= 0 || len(seq) <= limit || (w <= 16 && h <= 16) {
-			return seq
+			return seq, w, h
 		}
 		if attempt >= formats-1 {
 			// The size grows with the pixel count: shrink both sides by
@@ -258,7 +258,7 @@ func fitSequence(img *Image, w, h, limit, formats int, enc func(px *image.RGBA, 
 // ITermSized returns the iTerm2 sequence drawing the image at w×h pixels in
 // a cols × rows cell box, as PNG or, when that is too long, JPEG.
 func ITermSized(img *Image, w, h, cols, rows, limit int) string {
-	return fitSequence(img, w, h, limit, 2, func(px *image.RGBA, attempt int) string {
+	seq, _, _ := fitSequence(img, w, h, limit, 2, func(px *image.RGBA, attempt int) string {
 		var buf bytes.Buffer
 		if attempt == 0 {
 			png.Encode(&buf, px) //nolint:errcheck // writing to memory
@@ -267,11 +267,12 @@ func ITermSized(img *Image, w, h, cols, rows, limit int) string {
 		}
 		return ITermImage(buf.Bytes(), cols, rows)
 	})
+	return seq
 }
 
 // SixelSized returns the Sixel sequence of the image at w×h pixels, made
-// smaller when it is longer than limit bytes.
-func SixelSized(img *Image, w, h, limit int) string {
+// smaller when it is longer than limit bytes, and the final pixel size.
+func SixelSized(img *Image, w, h, limit int) (string, int, int) {
 	return fitSequence(img, w, h, limit, 1, func(px *image.RGBA, _ int) string {
 		pb := px.Bounds()
 		return SixelImage(&Image{RGBA: px}, pb.Dx(), pb.Dy())

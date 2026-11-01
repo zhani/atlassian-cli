@@ -46,6 +46,8 @@ func (s *store) seedConfluence() {
 		`<ac:image><ri:url ri:value="` + s.baseURL + links["gradient.png"] + `" /></ac:image>` +
 		`<table><tbody><tr><th>Name</th><th>Preview</th></tr>` +
 		`<tr><td>chart</td><td><ac:image ac:height="40"><ri:attachment ri:filename="chart.jpg" /></ac:image></td></tr></tbody></table>` +
+		`<h2>Screenshot</h2><p>A large image (over 1 MiB as PNG):</p>` +
+		`<ac:image><ri:attachment ri:filename="screenshot.png" /></ac:image>` +
 		`<p>A missing attachment:</p><ac:image><ri:attachment ri:filename="missing.png" /></ac:image>`
 }
 
