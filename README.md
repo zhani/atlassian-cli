@@ -107,6 +107,7 @@ Used with Atlassian Cloud (`*.atlassian.net`). Authenticates via Basic auth usin
 | `JIRA_FEATURE_LINK_TYPES` | Comma-separated link phrases from a feature to its issues (default `is implemented by,gets values from`) |
 | `JIRA_EPIC_LINK_FIELD` | JQL field linking issues to epics (default `parent` on Cloud, `Epic Link` on Server/DC) |
 | `JIRA_DETAIL_FIELDS` | Comma-separated custom fields (names or IDs) shown in the TUI issue view, in this order (default: all non-empty) |
+| `ATLASSIAN_IMAGES` | How the Confluence browser draws images: `auto` (default), `kitty`, `iterm`, `sixel`, `blocks` or `off` |
 | `CONFLUENCE_URL` | Confluence Cloud URL (e.g. `https://your-domain.atlassian.net/wiki`) |
 | `CONFLUENCE_EMAIL` | Your Atlassian account email address |
 | `CONFLUENCE_API_TOKEN` | API Token |
@@ -301,6 +302,25 @@ fields, e.g. `JIRA_DETAIL_FIELDS="Steps to Reproduce,Comment log"`.
 Copying uses `pbcopy`, `xclip`, `xsel` or `wl-copy` when available and falls
 back to the OSC 52 terminal escape sequence otherwise. Set `GLAMOUR_STYLE`
 (e.g. `dark`, `light`, `dracula`) to override the issue view's colour theme.
+
+### Images in the Confluence browser
+
+`confluence browse` shows the images of a page in place, and `i` opens them full
+screen one at a time (`n`/`p` move between them, `esc` goes back). How they are
+drawn depends on the terminal, which is detected automatically (inside tmux by
+asking tmux about the outer terminal):
+
+| Terminal | In the page | Full screen (`i`) |
+|----------|-------------|-------------------|
+| kitty, Ghostty (also inside tmux) | Real image, scrolls with the text (Unicode placeholders) | Real image |
+| WezTerm | Colored half-block characters | Real image (iTerm2 protocol) |
+| foot, other Sixel terminals | Colored half-block characters | Real image (Sixel) |
+| Anything else | Colored half-block characters | Half-block characters |
+
+Inside tmux, real images need `set -g allow-passthrough on` in `~/.tmux.conf`
+(tmux 3.3+); Sixel goes through tmux without it when tmux has Sixel support
+(3.4+). Set `ATLASSIAN_IMAGES` to `kitty`, `iterm`, `sixel`, `blocks` or `off`
+to override the detection.
 
 ### Confluence
 
