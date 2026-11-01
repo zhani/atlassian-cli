@@ -1,11 +1,14 @@
 package termimg
 
 import (
+	"bytes"
 	"encoding/base64"
 	"fmt"
 	"image"
-	"image/color/palette"
-	"image/draw"
+	"image/color"
+	"image/jpeg"
+	"image/png"
+	"math"
 	"strconv"
 	"strings"
 )
@@ -120,9 +123,11 @@ func ITermImage(png []byte, cols, rows int) string {
 
 // SixelImage encodes the image scaled to w×h pixels as a Sixel sequence.
 func SixelImage(img *Image, w, h int) string {
-	src := Resize(img.RGBA, w, h)
-	pal := image.NewPaletted(src.Bounds(), palette.Plan9)
-	draw.FloydSteinberg.Draw(pal, pal.Bounds(), src, image.Point{})
+	src := img.RGBA
+	if b := src.Bounds(); b.Dx() != w || b.Dy() != h {
+		src = Resize(img.RGBA, w, h)
+	}
+	pal := quantize(src)
 
 	var sb strings.Builder
 	fmt.Fprintf(&sb, "\x1bP0;1;0q\"1;1;%d;%d", w, h)
@@ -157,6 +162,56 @@ func SixelImage(img *Image, w, h int) string {
 	return sb.String()
 }
 
+// Sixel colors: a fixed 6×7×6 color cube, so that each pixel's color is
+// computed rather than searched for.
+const (
+	levelsR, levelsG, levelsB = 6, 7, 6
+)
+
+var cube = func() color.Palette {
+	var p color.Palette
+	for r := 0; r < levelsR; r++ {
+		for g := 0; g < levelsG; g++ {
+			for b := 0; b < levelsB; b++ {
+				p = append(p, color.RGBA{uint8(r * 255 / (levelsR - 1)), uint8(g * 255 / (levelsG - 1)), uint8(b * 255 / (levelsB - 1)), 255})
+			}
+		}
+	}
+	return p
+}()
+
+// quantize maps the image onto the color cube with Floyd–Steinberg error
+// diffusion.
+func quantize(src *image.RGBA) *image.Paletted {
+	b := src.Bounds()
+	w, h := b.Dx(), b.Dy()
+	dst := image.NewPaletted(image.Rect(0, 0, w, h), cube)
+	levels := [3]int{levelsR, levelsG, levelsB}
+	// Error rows for the current and next line, 3 channels, with a margin.
+	cur, next := make([]int, (w+2)*3), make([]int, (w+2)*3)
+	for y := 0; y < h; y++ {
+		for x := 0; x < w; x++ {
+			p := src.Pix[src.PixOffset(b.Min.X+x, b.Min.Y+y):]
+			idx := 0
+			for c := 0; c < 3; c++ {
+				v := min(255, max(0, int(p[c])+cur[(x+1)*3+c]/16))
+				n := levels[c] - 1
+				q := (v*n + 127) / 255
+				e := v - q*255/n
+				idx = idx*levels[c] + q
+				cur[(x+2)*3+c] += e * 7
+				next[x*3+c] += e * 3
+				next[(x+1)*3+c] += e * 5
+				next[(x+2)*3+c] += e
+			}
+			dst.Pix[y*dst.Stride+x] = uint8(idx)
+		}
+		cur, next = next, cur
+		clear(next)
+	}
+	return dst
+}
+
 // sixelRun writes one color's sixels of a band, run-length encoded.
 func sixelRun(sb *strings.Builder, row []byte) {
 	for x := 0; x < len(row); {
@@ -174,4 +229,51 @@ func sixelRun(sb *strings.Builder, row []byte) {
 		}
 		x += n
 	}
+}
+
+// fitSequence encodes the image at w×h pixels with enc, shrinking it until
+// the sequence is at most limit bytes (0: no limit). tmux drops escape
+// sequences longer than its input-buffer-size. enc gets the attempt number;
+// the first formats attempts try other encodings at the same size.
+func fitSequence(img *Image, w, h, limit, formats int, enc func(px *image.RGBA, attempt int) string) string {
+	w, h = max(1, w), max(1, h)
+	for attempt := 0; ; attempt++ {
+		px := img.RGBA
+		if b := px.Bounds(); b.Dx() != w || b.Dy() != h {
+			px = Resize(img.RGBA, w, h)
+		}
+		seq := enc(px, min(attempt, formats-1))
+		if limit <= 0 || len(seq) <= limit || (w <= 16 && h <= 16) {
+			return seq
+		}
+		if attempt >= formats-1 {
+			// The size grows with the pixel count: shrink both sides by
+			// the square root of the excess, with some margin.
+			f := math.Sqrt(float64(limit)/float64(len(seq))) * 0.9
+			w, h = max(1, int(float64(w)*f)), max(1, int(float64(h)*f))
+		}
+	}
+}
+
+// ITermSized returns the iTerm2 sequence drawing the image at w×h pixels in
+// a cols × rows cell box, as PNG or, when that is too long, JPEG.
+func ITermSized(img *Image, w, h, cols, rows, limit int) string {
+	return fitSequence(img, w, h, limit, 2, func(px *image.RGBA, attempt int) string {
+		var buf bytes.Buffer
+		if attempt == 0 {
+			png.Encode(&buf, px) //nolint:errcheck // writing to memory
+		} else {
+			jpeg.Encode(&buf, px, &jpeg.Options{Quality: 85}) //nolint:errcheck
+		}
+		return ITermImage(buf.Bytes(), cols, rows)
+	})
+}
+
+// SixelSized returns the Sixel sequence of the image at w×h pixels, made
+// smaller when it is longer than limit bytes.
+func SixelSized(img *Image, w, h, limit int) string {
+	return fitSequence(img, w, h, limit, 1, func(px *image.RGBA, _ int) string {
+		pb := px.Bounds()
+		return SixelImage(&Image{RGBA: px}, pb.Dx(), pb.Dy())
+	})
 }

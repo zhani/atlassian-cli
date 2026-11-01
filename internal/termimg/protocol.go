@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"strconv"
 	"strings"
 )
 
@@ -60,6 +61,9 @@ type Caps struct {
 	// terminal has the sixel feature; otherwise it shows "SIXEL IMAGE".
 	TmuxSixel bool
 	Terminal  string
+	// TmuxBuffer is tmux's input-buffer-size: longer escape sequences are
+	// dropped.
+	TmuxBuffer int
 
 	blocked bool // a better protocol was given up for lack of passthrough
 }
@@ -86,7 +90,7 @@ func Detect() (Caps, error) {
 	var c Caps
 	if os.Getenv("TMUX") != "" {
 		c.Tmux = true
-		c.Terminal, c.Passthrough, c.TmuxSixel = tmuxInfo()
+		c.Terminal, c.Passthrough, c.TmuxSixel, c.TmuxBuffer = tmuxInfo()
 	}
 
 	forced, ok, err := ParseProtocol(os.Getenv("ATLASSIAN_IMAGES"))
@@ -145,6 +149,22 @@ func (c Caps) choose(term string, sixel bool) Caps {
 	return c.passthroughFallback()
 }
 
+// defaultTmuxBuffer is tmux's default input-buffer-size (1 MiB).
+const defaultTmuxBuffer = 1 << 20
+
+// SeqLimit is the longest escape sequence that reaches the terminal, or 0
+// for no limit. Inside tmux it leaves room for the passthrough wrapping.
+func (c Caps) SeqLimit() int {
+	if !c.Tmux {
+		return 0
+	}
+	n := c.TmuxBuffer
+	if n <= 0 {
+		n = defaultTmuxBuffer
+	}
+	return n * 9 / 10
+}
+
 // passthroughFallback replaces protocols that cannot get through tmux.
 func (c Caps) passthroughFallback() Caps {
 	if !c.Tmux || c.Passthrough {
@@ -174,7 +194,7 @@ func (c Caps) Hint() string {
 
 // tmuxInfo asks tmux for the client terminal ("termname termtype features"),
 // whether passthrough is allowed and whether tmux has Sixel support.
-func tmuxInfo() (terminal string, passthrough, sixel bool) {
+func tmuxInfo() (terminal string, passthrough, sixel bool, buffer int) {
 	out, err := exec.Command("tmux", "display", "-p", "#{client_termname} #{client_termtype}|#{client_termfeatures}|#{sixel_support}").Output()
 	if err == nil {
 		parts := strings.SplitN(strings.TrimSpace(string(out)), "|", 3)
@@ -191,5 +211,11 @@ func tmuxInfo() (terminal string, passthrough, sixel bool) {
 		v := strings.TrimSpace(string(out))
 		passthrough = v == "on" || v == "all"
 	}
-	return terminal, passthrough, sixel
+	buffer = defaultTmuxBuffer
+	if out, err := exec.Command("tmux", "show", "-sv", "input-buffer-size").Output(); err == nil {
+		if n, err := strconv.Atoi(strings.TrimSpace(string(out))); err == nil && n > 0 {
+			buffer = n
+		}
+	}
+	return terminal, passthrough, sixel, buffer
 }
