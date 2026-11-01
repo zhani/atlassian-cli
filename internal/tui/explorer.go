@@ -8,6 +8,7 @@ import (
 	"github.com/charmbracelet/bubbles/key"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/putcho01/atlassian-cli/internal/bookmarks"
 	"github.com/putcho01/atlassian-cli/internal/jira"
 )
 
@@ -36,6 +37,10 @@ type ExplorerOptions struct {
 	// DrillJQL returns the query for the children of an issue in the issue
 	// pane (e.g. the stories of an epic), or false when it has none.
 	DrillJQL func(issue jira.Issue) (string, bool)
+
+	// Kind is the bookmark kind of the sidebar items (feature, epic,
+	// sprint); B bookmarks them when Issues.Bookmarks is set.
+	Kind bookmarks.Kind
 }
 
 var explorerKeys = struct {
@@ -66,6 +71,7 @@ type explorerModel struct {
 	right      model
 	stack      []drillFrame
 	status     string
+	statusOK   bool // status is a success message rather than an error
 
 	width, height int
 	quitting      bool
@@ -134,7 +140,7 @@ func (m explorerModel) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.quitting = true
 		return m, tea.Quit
 	}
-	m.status = ""
+	m.status, m.statusOK = "", false
 
 	// While typing a filter or choosing a transition, the issue pane owns
 	// every key.
@@ -232,6 +238,13 @@ func (m explorerModel) handleSidebarKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.status = done
 		}
 		return m, nil
+	case key.Matches(msg, bookmarkKeys.toggle) && m.opts.Issues.Bookmarks != nil && m.opts.Kind != "":
+		it := m.opts.Items[m.cursor]
+		b := bookmarks.Bookmark{Kind: m.opts.Kind, Key: it.Key, Title: it.Title, URL: it.URL}
+		var isErr bool
+		m.status, isErr = toggleBookmark(m.opts.Issues.Bookmarks, b)
+		m.statusOK = !isErr
+		return m, nil
 	case key.Matches(msg, keys.refresh), key.Matches(msg, keys.help):
 		return m.forward(msg)
 	}
@@ -285,7 +298,11 @@ func (m explorerModel) sidebarView() string {
 	footer := ""
 	switch {
 	case m.status != "":
-		footer = styleErr.Render(" " + truncate(m.status, max(5, w-2)))
+		style := styleErr
+		if m.statusOK {
+			style = styleOK
+		}
+		footer = style.Render(" " + truncate(m.status, max(5, w-2)))
 	case len(m.opts.Items) > 0 && m.opts.Items[m.cursor].Status != "":
 		footer = styleDim.Render(" " + m.opts.Items[m.cursor].Status)
 	}

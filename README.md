@@ -108,6 +108,7 @@ Used with Atlassian Cloud (`*.atlassian.net`). Authenticates via Basic auth usin
 | `JIRA_EPIC_LINK_FIELD` | JQL field linking issues to epics (default `parent` on Cloud, `Epic Link` on Server/DC) |
 | `JIRA_DETAIL_FIELDS` | Comma-separated custom fields (names or IDs) shown in the TUI issue view, in this order (default: all non-empty) |
 | `ATLASSIAN_IMAGES` | How the Confluence browser draws images: `auto` (default), `kitty`, `iterm`, `sixel`, `blocks` or `off` |
+| `ATLASSIAN_BOOKMARKS` | Bookmark file (default `~/.config/atlassian-cli/bookmarks.yaml`) |
 | `CONFLUENCE_URL` | Confluence Cloud URL (e.g. `https://your-domain.atlassian.net/wiki`) |
 | `CONFLUENCE_EMAIL` | Your Atlassian account email address |
 | `CONFLUENCE_API_TOKEN` | API Token |
@@ -291,6 +292,8 @@ force the browser). Piped output is never interactive.
 | `o` | Open in browser |
 | `c` / `ctrl+k` | Copy issue URL / key to the clipboard |
 | `ctrl+r` / `F5` | Refresh |
+| `B` | Bookmark the issue (again: remove the bookmark) |
+| `S` | Bookmark the list's query |
 | `?` | Toggle full help |
 | `q` | Quit |
 
@@ -302,6 +305,35 @@ fields, e.g. `JIRA_DETAIL_FIELDS="Steps to Reproduce,Comment log"`.
 Copying uses `pbcopy`, `xclip`, `xsel` or `wl-copy` when available and falls
 back to the OSC 52 terminal escape sequence otherwise. Set `GLAMOUR_STYLE`
 (e.g. `dark`, `light`, `dracula`) to override the issue view's colour theme.
+
+### Bookmarks
+
+Bookmarks keep the work you return to one keystroke away: Jira issues, saved
+JQL queries, features, epics, sprints and Confluence pages.
+
+```bash
+atlassian-cli bookmark                     # bookmark browser (in a terminal)
+atlassian-cli bookmark add PROJ-123        # an issue
+atlassian-cli bookmark add query "assignee = currentUser() AND resolution = Unresolved" --name "My open work"
+atlassian-cli bookmark add feature PROJ-7  # also: epic KEY, sprint ID, page ID
+atlassian-cli bookmark list                # numbered; -o json for scripts
+atlassian-cli bookmark open "My open work" # by number, name, key or ID; --web for the browser
+atlassian-cli bookmark rename 3 "Payments"
+atlassian-cli bookmark remove 3
+atlassian-cli bookmark edit                # the YAML file in $EDITOR
+```
+
+In the bookmark browser `enter` opens a bookmark in its view: an issue in the
+issue view, a query in the issue browser, a feature, epic or sprint as its
+issues, a page in the page tree. Quitting that view returns to the bookmarks.
+`o` opens the bookmark on the web, `c` / `ctrl+k` copy its link / key, `r`
+renames, `d` deletes, `/` filters.
+
+Press `B` in the issue browser, on a feature/epic/sprint in the explorers or on
+a page in `confluence browse` to bookmark it (`B` again removes it); `S` in an
+issue list bookmarks its query. Bookmarks live in
+`~/.config/atlassian-cli/bookmarks.yaml` (or `ATLASSIAN_BOOKMARKS`), a plain
+YAML file you can edit, back up or sync.
 
 ### Images in the Confluence browser
 
@@ -478,6 +510,7 @@ Available tool groups:
 - `confluence_restriction` - Page restriction management
 - `confluence_attachment` - List, download, upload and delete page attachments
 - `confluence_api` - Raw request to any Confluence REST endpoint *(opt-in)*
+- `bookmarks` - List, add and remove the user's bookmarks
 
 Without `--tools`, every group except the *opt-in* ones is enabled; opt-in
 groups are only loaded when named.

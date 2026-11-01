@@ -24,6 +24,7 @@ var toolGroups = map[string][]string{
 	"confluence_restriction": {"confluence_list_restrictions", "confluence_add_restriction", "confluence_remove_restriction"},
 	"confluence_attachment":  {"confluence_list_attachments", "confluence_download_attachment", "confluence_upload_attachment", "confluence_delete_attachment"},
 	"confluence_api":         {"confluence_api_request"},
+	"bookmarks":              {"bookmark_list", "bookmark_add", "bookmark_remove"},
 }
 
 // optInGroups are left out unless named in --tools: raw API access is broad

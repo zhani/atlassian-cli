@@ -59,6 +59,15 @@ func (s *store) registerAgile(mux *http.ServeMux) {
 	})
 	mux.HandleFunc("GET /rest/agile/1.0/board/{id}/sprint", s.listSprints)
 	mux.HandleFunc("POST /rest/agile/1.0/sprint/{id}/issue", s.moveToSprint)
+	mux.HandleFunc("GET /rest/agile/1.0/sprint/{id}", func(w http.ResponseWriter, r *http.Request) {
+		for _, sp := range fakeSprints {
+			if strconv.Itoa(sp.ID) == r.PathValue("id") {
+				writeJSON(w, http.StatusOK, map[string]any{"id": sp.ID, "name": sp.Name, "state": sp.State, "startDate": sp.Start, "endDate": sp.End})
+				return
+			}
+		}
+		notFound(w, "Sprint "+r.PathValue("id"))
+	})
 	mux.HandleFunc("POST /rest/agile/1.0/epic/{key}/issue", s.moveToEpic)
 	mux.HandleFunc("GET /rest/api/space/{key}/content/page", s.rootPages)
 }

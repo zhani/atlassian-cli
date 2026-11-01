@@ -67,6 +67,12 @@ func (h helpKeys) FullHelp() [][]key.Binding { return h.full }
 
 func (m model) helpKeys() helpKeys {
 	actions := []key.Binding{keys.open, keys.transition, keys.copyURL, keys.copyKey, keys.refresh}
+	if m.opts.Bookmarks != nil {
+		actions = append(actions, bookmarkKeys.toggle)
+		if m.mode == modeList && m.opts.JQL != "" {
+			actions = append(actions, bookmarkKeys.saveQuery)
+		}
+	}
 	switch m.mode {
 	case modeTransition:
 		b := []key.Binding{keys.up, keys.down, keys.choose, keys.back}

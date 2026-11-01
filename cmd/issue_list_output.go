@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/mattn/go-isatty"
+	"github.com/putcho01/atlassian-cli/internal/bookmarks"
 	"github.com/putcho01/atlassian-cli/internal/browser"
 	"github.com/putcho01/atlassian-cli/internal/config"
 	"github.com/putcho01/atlassian-cli/internal/formatter"
@@ -73,6 +74,9 @@ func browserOptions(client *jira.Client, limit int) tui.Options {
 	opts := tui.Options{Source: client, Limit: limit, OpenURL: browser.Open, Copy: tui.CopyToClipboard}
 	if cfg, err := config.LoadJiraConfig(); err == nil {
 		opts.DetailFields = cfg.DetailFields
+	}
+	if store, err := bookmarks.Open(); err == nil {
+		opts.Bookmarks = store
 	}
 	return opts
 }

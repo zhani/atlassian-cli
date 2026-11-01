@@ -24,6 +24,18 @@ Check them with `atlassian-cli jira myself`.
 - `confluence page update` replaces the whole page: fetch it first with
   `page get ID --content-only`, edit, then send the full Markdown back.
 
+## Bookmarks
+
+The user's bookmarks name the issues, queries, features, epics, sprints and
+pages they work with; start there when they refer to "my work", a named
+query or a bookmark:
+
+```bash
+atlassian-cli bookmark list -o json                         # n, kind, key / jql, name, title
+atlassian-cli bookmark open "My open work" -o markdown       # a query's issues, an issue, a page…
+atlassian-cli bookmark add PROJ-1                            # or: add query "JQL" --name N / feature|epic KEY / sprint ID / page ID
+```
+
 ## Jira
 
 ```bash

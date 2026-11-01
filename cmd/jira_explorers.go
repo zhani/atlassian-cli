@@ -6,6 +6,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/putcho01/atlassian-cli/internal/bookmarks"
 	"github.com/putcho01/atlassian-cli/internal/config"
 	"github.com/putcho01/atlassian-cli/internal/jira"
 	"github.com/putcho01/atlassian-cli/internal/tui"
@@ -84,37 +85,26 @@ feature's issues are shown.`,
 		if featureType == "" {
 			featureType = config.DefaultFeatureType
 		}
-		phrases, _ := cmd.Flags().GetStringArray("link-type")
-		if len(phrases) == 0 {
-			phrases = cfg.FeatureLinkTypes
-		}
-		if len(phrases) == 0 {
-			phrases = config.DefaultFeatureLinkTypes
-		}
+		phrases := featureLinkPhrases(cmd, cfg)
 		limit, _ := cmd.Flags().GetInt("max-results")
-
-		var features []jira.Issue
 		if len(args) == 1 {
-			f, err := client.GetIssue(cmd.Context(), args[0])
-			if err != nil {
-				return err
-			}
-			features = []jira.Issue{*f}
-		} else {
-			opts := filterOptions(cmd, cfg)
-			opts.Type = featureType
-			all, _ := cmd.Flags().GetBool("all")
-			opts.Unresolved = !all && opts.Resolution == "" // an explicit -R wins
-			jql, err := jira.BuildJQL(opts)
-			if err != nil {
-				return err
-			}
-			if shown, err := showJQL(cmd, jql); shown || err != nil {
-				return err
-			}
-			if features, err = client.SearchIssuesAll(cmd.Context(), jql, explorerFields, limit); err != nil {
-				return err
-			}
+			return showFeature(cmd, client, args[0], phrases)
+		}
+
+		opts := filterOptions(cmd, cfg)
+		opts.Type = featureType
+		all, _ := cmd.Flags().GetBool("all")
+		opts.Unresolved = !all && opts.Resolution == "" // an explicit -R wins
+		jql, err := jira.BuildJQL(opts)
+		if err != nil {
+			return err
+		}
+		if shown, err := showJQL(cmd, jql); shown || err != nil {
+			return err
+		}
+		features, err := client.SearchIssuesAll(cmd.Context(), jql, explorerFields, limit)
+		if err != nil {
+			return err
 		}
 
 		items := make([]tui.ExplorerItem, len(features))
@@ -131,23 +121,50 @@ feature's issues are shown.`,
 		}
 		browse := browserOptions(client, limit)
 		browse.AnnotationTitle = "Link"
-		if len(args) == 1 {
-			it := items[0]
-			if it.JQL == "" {
-				return fmt.Errorf("%s has no issues linked as %s", it.Key, strings.Join(phrases, " / "))
-			}
-			return showIssuesWith(cmd, client, it.JQL, func(o *tui.Options) {
-				o.Caption = it.Key + "  " + it.Title
-				o.AnnotationTitle, o.Annotations = "Link", it.Annotations
-			})
-		}
 		return tui.RunExplorer(cmd.Context(), tui.ExplorerOptions{
 			Title:    "Features",
 			Items:    items,
 			Issues:   browse,
 			DrillJQL: drillIntoEpics(client, cfg),
+			Kind:     bookmarks.Feature,
 		})
 	},
+}
+
+// featureLinkPhrases returns the link phrases from a feature to its issues:
+// --link-type, JIRA_FEATURE_LINK_TYPES or the defaults.
+func featureLinkPhrases(cmd *cobra.Command, cfg *config.AtlassianConfig) []string {
+	phrases, _ := cmd.Flags().GetStringArray("link-type")
+	if len(phrases) == 0 {
+		phrases = cfg.FeatureLinkTypes
+	}
+	if len(phrases) == 0 {
+		phrases = config.DefaultFeatureLinkTypes
+	}
+	return phrases
+}
+
+// showFeature shows the issues linked to one feature, in the issue browser
+// or as feature/issue rows.
+func showFeature(cmd *cobra.Command, client *jira.Client, key string, phrases []string) error {
+	f, err := client.GetIssue(cmd.Context(), key)
+	if err != nil {
+		return err
+	}
+	keys, relation := jira.LinkedChildren(f, phrases)
+	it := issueItem(client, *f)
+	it.JQL, it.Annotations = jira.KeysJQL(keys), relation
+	if !useInteractive(cmd) {
+		limit, _ := cmd.Flags().GetInt("max-results")
+		return printFeatures(cmd, client, []tui.ExplorerItem{it}, [][]string{keys}, limit)
+	}
+	if it.JQL == "" {
+		return fmt.Errorf("%s has no issues linked as %s", it.Key, strings.Join(phrases, " / "))
+	}
+	return showIssuesWith(cmd, client, it.JQL, func(o *tui.Options) {
+		o.Caption = it.Key + "  " + it.Title
+		o.AnnotationTitle, o.Annotations = "Link", it.Annotations
+	})
 }
 
 // featureRow is one feature/child pair of the plain feature listing.
@@ -267,7 +284,7 @@ Server/DC; set JIRA_EPIC_LINK_FIELD to use another JQL field.`,
 			items[i] = issueItem(client, e)
 			items[i].JQL = client.EpicChildrenJQL(e.Key, cfg.EpicLinkField)
 		}
-		return tui.RunExplorer(cmd.Context(), tui.ExplorerOptions{Title: "Epics", Items: items, Issues: browserOptions(client, limit)})
+		return tui.RunExplorer(cmd.Context(), tui.ExplorerOptions{Title: "Epics", Items: items, Issues: browserOptions(client, limit), Kind: bookmarks.Epic})
 	},
 }
 
@@ -420,6 +437,7 @@ The board is --board, JIRA_DEFAULT_BOARD, or the only board of the project.`,
 			Selected: selected,
 			Issues:   browserOptions(client, limit),
 			DrillJQL: drillIntoEpics(client, cfg),
+			Kind:     bookmarks.Sprint,
 		})
 	},
 }

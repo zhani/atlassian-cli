@@ -12,6 +12,7 @@ import (
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/putcho01/atlassian-cli/internal/bookmarks"
 	"github.com/putcho01/atlassian-cli/internal/confluence"
 	"github.com/putcho01/atlassian-cli/internal/htmlconv"
 	"github.com/putcho01/atlassian-cli/internal/termimg"
@@ -32,8 +33,14 @@ type TreeOptions struct {
 	Source PageSource
 	Space  string // start in this space; "" lists all spaces
 
+	// PageID starts at this page (its subtree) instead of a space.
+	PageID string
+
 	OpenURL func(url string) error
 	Copy    func(text string) error
+
+	// Bookmarks enables B (bookmark the page).
+	Bookmarks Bookmarker
 }
 
 // treeLimit caps how many children are listed per node.
@@ -127,8 +134,15 @@ func (m treeModel) Init() tea.Cmd { return m.initCmd }
 
 func (m treeModel) loadChildren(n *treeNode) tea.Cmd {
 	ctx, src, space := m.ctx, m.opts.Source, m.opts.Space
+	pageID := m.opts.PageID
 	return func() tea.Msg {
 		switch {
+		case n == nil && pageID != "":
+			p, err := src.GetPage(ctx, pageID, []string{"space"})
+			if err != nil {
+				return childrenLoadedMsg{err: err}
+			}
+			return childrenLoadedMsg{pages: []confluence.Page{*p}}
 		case n == nil && space == "":
 			spaces, err := src.ListSpaces(ctx, treeLimit)
 			return childrenLoadedMsg{spaces: spaces, err: err}
@@ -293,6 +307,16 @@ func (m treeModel) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	case key.Matches(msg, treeKeys.images):
 		return m.previewImages()
+	case m.opts.Bookmarks != nil && key.Matches(msg, bookmarkKeys.toggle):
+		n := m.selected()
+		if n == nil || n.isSpace {
+			m.setStatus("Select a page to bookmark", true)
+			return m, nil
+		}
+		m.setStatus(toggleBookmark(m.opts.Bookmarks, bookmarks.Bookmark{
+			Kind: bookmarks.Page, Key: n.id, Title: n.title, URL: n.url, Space: m.spaceOf(n),
+		}))
+		return m, nil
 	case key.Matches(msg, treeKeys.refresh):
 		if n := m.selected(); n != nil && !n.isSpace {
 			m.forgetPage(n.id)
@@ -397,6 +421,19 @@ func (m *treeModel) selectionChanged() tea.Cmd {
 }
 
 // --- helpers ---
+
+// spaceOf returns the key of the space a page is in, when known.
+func (m treeModel) spaceOf(n *treeNode) string {
+	for p := n; p != nil; p = p.parent {
+		if p.isSpace {
+			return p.id
+		}
+	}
+	if pg, ok := m.pages[n.id]; ok && pg.Space != nil {
+		return pg.Space.Key
+	}
+	return m.opts.Space
+}
 
 func (m *treeModel) setStatus(s string, isErr bool) { m.status, m.statusErr = s, isErr }
 
@@ -524,7 +561,10 @@ func (m treeModel) View() string {
 func (m treeModel) treeView() string {
 	w := m.treeWidth() - 2
 	title := "Spaces"
-	if m.opts.Space != "" {
+	switch {
+	case m.opts.PageID != "":
+		title = "Page " + m.opts.PageID
+	case m.opts.Space != "":
 		title = m.opts.Space
 	}
 	if m.loading {
@@ -573,7 +613,7 @@ func (m treeModel) helpKeys() helpKeys {
 	short := []key.Binding{treeKeys.expand, treeKeys.collapse, treeKeys.focus, treeKeys.images, keys.open, keys.copyURL, keys.help, keys.quit}
 	return helpKeys{short: short, full: [][]key.Binding{
 		{keys.up, keys.down, keys.pageUp, keys.pageDown, keys.top, keys.bottom},
-		{treeKeys.expand, treeKeys.collapse, treeKeys.focus, treeKeys.refresh, treeKeys.images},
+		{treeKeys.expand, treeKeys.collapse, treeKeys.focus, treeKeys.refresh, treeKeys.images, bookmarkKeys.toggle},
 		{keys.open, keys.copyURL, keys.help, keys.quit},
 	}}
 }
