@@ -57,19 +57,30 @@ func (m *model) issueRow(issue jira.Issue) table.Row {
 	return table.Row{issue.Key, safeType(f.IssueType), safeName(f.Status), safeUser(f.Assignee), m.opts.Annotations[issue.Key], f.Summary}
 }
 
-// applyFilter recomputes the visible rows from the filter text, matching it
-// case-insensitively against every column.
+// applyFilter recomputes the visible rows: every issue, or the fuzzy
+// matches of the filter across all columns, best first.
 func (m *model) applyFilter() {
-	needle := strings.ToLower(strings.TrimSpace(m.filter.Value()))
+	q := strings.TrimSpace(m.filter.Value())
 	m.visible = nil
+	m.matches = nil
 	rows := make([]table.Row, 0, len(m.issues))
+	if q != "" {
+		m.matches = map[int]rowMatch{}
+	}
 	for i, issue := range m.issues {
 		row := m.issueRow(issue)
-		if needle != "" && !strings.Contains(strings.ToLower(strings.Join(row, "\x00")), needle) {
-			continue
+		if q != "" {
+			rm, ok := matchRow(q, row)
+			if !ok {
+				continue
+			}
+			m.matches[i] = rm
 		}
 		m.visible = append(m.visible, i)
 		rows = append(rows, row)
+	}
+	if q != "" {
+		m.sortByScore(rows)
 	}
 	m.table.SetRows(rows)
 	// Keep the cursor on a row; it is -1 after the table was empty.
@@ -78,6 +89,9 @@ func (m *model) applyFilter() {
 		m.table.SetCursor(len(rows) - 1)
 	case c < 0 && len(rows) > 0:
 		m.table.SetCursor(0)
+	}
+	if q != "" {
+		m.keepFilterCursorVisible()
 	}
 }
 

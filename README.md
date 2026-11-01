@@ -287,7 +287,7 @@ force the browser). Piped output is never interactive.
 | `ctrl+f` / `ctrl+b` | Page down / up |
 | `enter` / `v` | View issue (description, custom fields, links, subtasks, latest comments) |
 | `esc` | Back / clear filter |
-| `/` | Filter the loaded issues |
+| `/` | Fuzzy-find the loaded issues (fzf-style across all columns, best first): `↓`/`↑` or `ctrl+n`/`ctrl+p` move, `enter` opens the issue and keeps the list filtered, `esc` clears |
 | `m` | Transition (move) the issue |
 | `o` | Open in browser |
 | `c` / `ctrl+k` | Copy issue URL / key to the clipboard |

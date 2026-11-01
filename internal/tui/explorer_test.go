@@ -7,6 +7,7 @@ import (
 
 	"github.com/charmbracelet/bubbles/spinner"
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 	"github.com/google/go-cmp/cmp"
 	"github.com/putcho01/atlassian-cli/internal/jira"
 )
@@ -189,5 +190,14 @@ func TestExplorerSidebarActions(t *testing.T) {
 	m = pressExplorer(m, "c")
 	if !strings.Contains(m.status, "No link") {
 		t.Errorf("status = %q, want no-link message", m.status)
+	}
+}
+
+func TestExplorerLongStatusKeepsSidebarWidth(t *testing.T) {
+	t.Parallel()
+	_, m := newTestExplorer(t)
+	m.opts.Items[0].Status = strings.Repeat("very long status ", 10)
+	if w := lipgloss.Width(m.sidebarView()); w != m.sidebarWidth() {
+		t.Errorf("sidebar width %d, want %d", w, m.sidebarWidth())
 	}
 }

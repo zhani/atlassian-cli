@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/charmbracelet/bubbles/spinner"
+	"github.com/charmbracelet/bubbles/table"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/google/go-cmp/cmp"
 	"github.com/putcho01/atlassian-cli/internal/jira"
@@ -118,28 +119,33 @@ func drain(m model, cmd tea.Cmd) model {
 	return m
 }
 
-func press(m model, k string) model {
-	var msg tea.KeyMsg
-	switch k {
-	case "enter":
-		msg = tea.KeyMsg{Type: tea.KeyEnter}
-	case "esc":
-		msg = tea.KeyMsg{Type: tea.KeyEsc}
-	case "down":
-		msg = tea.KeyMsg{Type: tea.KeyDown}
-	case "up":
-		msg = tea.KeyMsg{Type: tea.KeyUp}
-	case "ctrl+r":
-		msg = tea.KeyMsg{Type: tea.KeyCtrlR}
-	case "ctrl+k":
-		msg = tea.KeyMsg{Type: tea.KeyCtrlK}
-	case "ctrl+c":
-		msg = tea.KeyMsg{Type: tea.KeyCtrlC}
-	default:
-		msg = tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(k)}
+func press(m model, ks ...string) model {
+	for _, k := range ks {
+		var msg tea.KeyMsg
+		switch k {
+		case "enter":
+			msg = tea.KeyMsg{Type: tea.KeyEnter}
+		case "esc":
+			msg = tea.KeyMsg{Type: tea.KeyEsc}
+		case "down":
+			msg = tea.KeyMsg{Type: tea.KeyDown}
+		case "up":
+			msg = tea.KeyMsg{Type: tea.KeyUp}
+		case "backspace":
+			msg = tea.KeyMsg{Type: tea.KeyBackspace}
+		case "ctrl+r":
+			msg = tea.KeyMsg{Type: tea.KeyCtrlR}
+		case "ctrl+k":
+			msg = tea.KeyMsg{Type: tea.KeyCtrlK}
+		case "ctrl+c":
+			msg = tea.KeyMsg{Type: tea.KeyCtrlC}
+		default:
+			msg = tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(k)}
+		}
+		next, cmd := m.Update(msg)
+		m = drain(next.(model), cmd)
 	}
-	next, cmd := m.Update(msg)
-	return drain(next.(model), cmd)
+	return m
 }
 
 func TestNavigation(t *testing.T) {
@@ -318,14 +324,76 @@ func TestFilter(t *testing.T) {
 		t.Fatal("typing in the filter should not quit")
 	}
 
+	// enter opens the issue; the list behind it stays filtered.
 	m = press(m, "enter")
-	if m.filtering || m.selectedKey() != "PROJ-2" {
-		t.Errorf("filtering = %v selected = %s, want filter applied on PROJ-2", m.filtering, m.selectedKey())
+	if m.filtering || m.mode != modeDetail || m.detailKey != "PROJ-2" {
+		t.Errorf("filtering = %v mode = %v detail = %s, want PROJ-2 opened", m.filtering, m.mode, m.detailKey)
+	}
+	m = press(m, "esc")
+	if m.mode != modeList || len(m.visible) != 1 {
+		t.Errorf("back to the filtered list: mode %v visible %v", m.mode, m.visible)
 	}
 
 	m = press(m, "esc")
 	if len(m.visible) != 3 {
 		t.Errorf("esc should clear the filter, visible = %v", m.visible)
+	}
+}
+
+func TestFuzzyFilterOrderAndKeys(t *testing.T) {
+	t.Parallel()
+	_, m := newHarness(t)
+	m = press(m, "down", "down") // PROJ-3
+	m = press(m, "/")
+	for _, r := range "issue" {
+		m = press(m, string(r))
+	}
+	if len(m.visible) != 3 || m.table.Cursor() != 0 {
+		t.Fatalf("visible %v cursor %d", m.visible, m.table.Cursor())
+	}
+	view := m.View()
+	if !strings.Contains(view, "/ issue") || !strings.Contains(view, "3/3") {
+		t.Errorf("filter box missing:\n%s", view)
+	}
+	// "sec" ranks Second issue (word start) first.
+	for range "issue" {
+		m = press(m, "backspace")
+	}
+	for _, r := range "sec" {
+		m = press(m, string(r))
+	}
+	if m.selectedKey() != "PROJ-2" {
+		t.Errorf("best match %s (visible %v)", m.selectedKey(), m.visible)
+	}
+	// Movement wraps; letters are typed, not actions.
+	for range "sec" {
+		m = press(m, "backspace")
+	}
+	m = press(m, "p", "r", "o", "j")
+	m = press(m, "up")
+	if m.table.Cursor() != len(m.visible)-1 {
+		t.Errorf("up from the first match should wrap, cursor %d", m.table.Cursor())
+	}
+	m = press(m, "q", "m")
+	if m.quitting || m.mode == modeTransition || m.filter.Value() != "projqm" {
+		t.Errorf("value %q", m.filter.Value())
+	}
+	// esc while typing restores the full list and the selection.
+	m = press(m, "esc")
+	if m.filtering || len(m.visible) != 3 || m.selectedKey() != "PROJ-3" {
+		t.Errorf("after esc: filtering %v visible %v selected %s", m.filtering, m.visible, m.selectedKey())
+	}
+}
+
+func TestMatchRowColumns(t *testing.T) {
+	t.Parallel()
+	row := table.Row{"PROJ-7", "Bug", "In Progress", "Ann Lee", "", "Crash on start"}
+	rm, ok := matchRow("proj crash", row)
+	if !ok || len(rm.pos[icKey]) != 4 || len(rm.pos[icSummary]) != 5 {
+		t.Errorf("match %+v %v", rm, ok)
+	}
+	if _, ok := matchRow("zzz", row); ok {
+		t.Error("zzz matched")
 	}
 }
 
