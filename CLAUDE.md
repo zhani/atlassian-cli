@@ -29,7 +29,7 @@ The project is a single Go binary (`main.go` → `cmd.Execute()`) structured as 
 
 - **`cmd/`** — Cobra command tree. Each file corresponds to a command group (e.g., `jira_issue_get.go`, `confluence_page.go`). Commands instantiate an API client, call it, and delegate rendering to `internal/formatter`.
 - **`internal/config/`** — Reads `JIRA_*` / `CONFLUENCE_*` environment variables, falling back to shared `ATLASSIAN_*` ones (a shared email is only paired with an API token, never a PAT). If `EMAIL` is set, Basic auth (Cloud) is used; otherwise Bearer auth (Server/DC). `LoadJiraConfig()` / `LoadConfluenceConfig()` are the entry points.
-- **`internal/httpclient/`** — Thin HTTP client wrapper that injects auth headers.
+- **`internal/httpclient/`** — Thin HTTP client wrapper that injects auth headers. `Transport()` (`tls.go`) is the shared RoundTripper for real servers, also used for page images: the default transport plus `ATLASSIAN_CA_FILE` roots (system pool + file; on macOS Go retries with its own verifier when the platform one fails).
 - **`internal/jira/`** — Jira REST API client and type definitions (`types.go`).
 - **`internal/confluence/`** — Confluence REST API client and type definitions (`types.go`).
 - **`internal/formatter/`** — Renders API responses in three formats: `table` (tab-aligned), `json`, `markdown` (plus `csv` for issue lists; `columns.go` holds the selectable issue columns). HTML content is piped through `htmlconv.Convert()` when using markdown format.
