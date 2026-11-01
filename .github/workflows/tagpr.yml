@@ -11,6 +11,9 @@ permissions:
 
 jobs:
   tagpr:
+    # Only upstream opens release pull requests; forks release by pushing a
+    # tag (release.yml).
+    if: github.repository == 'putcho01/atlassian-cli'
     runs-on: ubuntu-latest
     outputs:
       tagpr-tag: ${{ steps.run-tagpr.outputs.tag }}

@@ -1,0 +1,44 @@
+name: Release
+
+# Builds and publishes release binaries when a version tag is pushed:
+#   git tag v0.3.0 && git push origin v0.3.0
+# It can also be started by hand from the Actions tab for an existing tag.
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing tag to release (e.g. v0.3.0)
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    # Upstream releases through tagpr (tagpr.yml); this is for forks.
+    if: github.repository != 'putcho01/atlassian-cli'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ inputs.tag || github.ref }}
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Test
+        run: go test ./...
+
+      - uses: goreleaser/goreleaser-action@v6
+        with:
+          version: "~> v2"
+          args: release --clean
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
