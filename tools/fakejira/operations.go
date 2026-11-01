@@ -237,7 +237,7 @@ func (s *store) listFields(w http.ResponseWriter, _ *http.Request) {
 	}
 	sort.Strings(ids)
 	for _, id := range ids {
-		fields = append(fields, map[string]any{"id": id, "name": "Custom " + strings.TrimPrefix(id, "customfield_"), "custom": true, "schema": map[string]any{"type": "any"}})
+		fields = append(fields, map[string]any{"id": id, "name": s.fieldName(id), "custom": true, "schema": map[string]any{"type": "any"}})
 	}
 	writeJSON(w, http.StatusOK, fields)
 }
