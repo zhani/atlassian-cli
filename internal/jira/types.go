@@ -129,7 +129,7 @@ type IssueFields struct {
 	Updated     string       `json:"updated"`
 	Labels      []string     `json:"labels"`
 	Subtasks    []Issue      `json:"subtasks"`
-	Parent      *Issue       `json:\"parent,omitempty\"` // parent issue (subtask parent; the epic on Cloud)
+	Parent      *Issue       `json:"parent,omitempty"` // parent issue (subtask parent; the epic on Cloud)
 	Attachment  []Attachment `json:"attachment"`
 	IssueLinks  []IssueLink  `json:"issuelinks,omitempty"`
 	Comment     *CommentPage `json:"comment,omitempty"`
