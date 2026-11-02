@@ -12,6 +12,7 @@ import (
 	"github.com/zhani/atlassian-cli/internal/confluence"
 	"github.com/zhani/atlassian-cli/internal/htmlconv"
 	"github.com/zhani/atlassian-cli/internal/jira"
+	"github.com/zhani/atlassian-cli/internal/xray"
 )
 
 type Format string
@@ -101,6 +102,9 @@ func (f *Formatter) PrintIssue(issue *jira.Issue) error {
 		}
 		if issue.Fields.Description != "" {
 			fmt.Fprintf(f.writer, "\n### Description\n\n%s\n", htmlconv.Convert(issue.Fields.Description))
+		}
+		if td := xray.Markdown(xray.ManualSteps(issue.Fields.Custom), issue.XrayRuns); td != "" {
+			fmt.Fprintf(f.writer, "\n%s", td)
 		}
 		return nil
 	default:

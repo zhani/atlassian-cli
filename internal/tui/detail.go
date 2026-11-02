@@ -12,6 +12,7 @@ import (
 	"github.com/charmbracelet/lipgloss"
 	"github.com/zhani/atlassian-cli/internal/htmlconv"
 	"github.com/zhani/atlassian-cli/internal/jira"
+	"github.com/zhani/atlassian-cli/internal/xray"
 )
 
 // maxComments is how many of the most recent comments the detail view shows.
@@ -56,6 +57,9 @@ func issueMarkdown(issue *jira.Issue, detailFields []string) string {
 	sections, short := customFields(issue, detailFields)
 	for _, sec := range sections {
 		fmt.Fprintf(&sb, "\n## %s\n\n%s\n", sec[0], sec[1])
+	}
+	if td := xray.Markdown(xray.ManualSteps(f.Custom), issue.XrayRuns); td != "" {
+		sb.WriteString("\n" + td)
 	}
 	if len(short) > 0 {
 		sb.WriteString("\n## Fields\n\n")

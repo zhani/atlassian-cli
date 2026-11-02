@@ -25,6 +25,7 @@ import (
 	"github.com/zhani/atlassian-cli/internal/confluence"
 	"github.com/zhani/atlassian-cli/internal/jira"
 	"github.com/zhani/atlassian-cli/internal/mirror"
+	"github.com/zhani/atlassian-cli/internal/xray"
 )
 
 // ExportOptions selects what to export.
@@ -565,6 +566,59 @@ func obj(m map[string]any, key string) map[string]any {
 	return v
 }
 
+// exportXray stores the Xray test runs an issue's TestRunStatus field names
+// (xray/testrun-<id>.json) and downloads their evidence and the manual steps'
+// attachments into xray/files/, with xray/urls.json mapping each file's URL
+// path (relative to the Jira base) to its file, for the mirror to serve.
+func (e *Exporter) exportXray(ctx context.Context, key string, fields map[string]any, dir string) {
+	var files []xray.File
+	for _, st := range xray.ManualSteps(fields) {
+		files = append(files, st.Files...)
+	}
+	for _, ref := range xray.RunRefs(fields) {
+		run, err := e.Jira.XrayTestRun(ctx, ref.ID)
+		if err != nil {
+			e.warn("%s: %v", key, err)
+			continue
+		}
+		if err := writeJSONFile(filepath.Join(dir, "xray", "testrun-"+ref.ID+".json"), run); err != nil {
+			e.warn("%s test run %s: %v", key, ref.ID, err)
+			continue
+		}
+		files = append(files, xray.Files(run)...)
+	}
+	if len(files) == 0 {
+		return
+	}
+	urls := map[string]string{}
+	base := strings.TrimRight(e.Jira.BaseURL(), "/")
+	for _, f := range files {
+		local := f.LocalName()
+		if err := e.download(ctx, func() (io.ReadCloser, error) { return e.Jira.DownloadAttachment(ctx, f.URL) },
+			filepath.Join(dir, "xray", "files", local)); err != nil {
+			e.warn("%s evidence %s: %v", key, f.Name, err)
+			continue
+		}
+		urls[sitePath(f.URL, base)] = local
+		e.stats.attachments++
+	}
+	if err := writeJSONFile(filepath.Join(dir, "xray", "urls.json"), urls); err != nil {
+		e.warn("%s: %v", key, err)
+	}
+}
+
+// sitePath is a URL's path (and query) relative to the Jira base, the form
+// the mirror sees once it has rewritten the base to its own.
+func sitePath(u, base string) string {
+	if rest, ok := strings.CutPrefix(u, base); ok && strings.HasPrefix(rest, "/") {
+		return rest
+	}
+	if pu, err := url.Parse(u); err == nil && pu.Path != "" {
+		return pu.RequestURI()
+	}
+	return u
+}
+
 // relatedKeys lists the not yet exported issues one step away from the
 // exported ones: parent, subtasks, every issue link in either direction
 // ("relates to", "is blocked by", "clones"…), the Epic Link field
@@ -706,6 +760,7 @@ func (e *Exporter) storeIssue(ctx context.Context, is map[string]any) error {
 		}
 		e.stats.attachments++
 	}
+	e.exportXray(ctx, key, f, dir)
 	if err := writeJSONFile(filepath.Join(dir, "issue.json"), is); err != nil {
 		return err
 	}

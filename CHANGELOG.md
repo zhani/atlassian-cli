@@ -1,5 +1,15 @@
 # Changelog
 
+## Unreleased
+
+### Jira
+- `--max-results` of `jira issue list`/`search` now defaults to 500 (was 50) and of the feature/epic/sprint explorers to 500 (was 100), so the issue browser shows a whole board or mirror. `JIRA_MAX_RESULTS` changes that default; a `--max-results` flag still wins.
+
+### Xray tests
+- `jira issue get -o markdown` and the issue browser show a **Test Details** section for Xray (Server/DC) tests: the manual steps (Action, Data, Expected Result) with each step's latest result, actual result, comment, defects and evidence, from the test runs the TestRunStatus field names. The fields are recognised by shape, whatever their IDs.
+- `jira issue evidence KEY [NAME…] [--dir DIR] [--list]` downloads a test's evidence and step attachments.
+- `mirror export` stores those test runs and downloads all their evidence, so all of the above works offline.
+
 ## [v0.4.1](https://github.com/zhani/atlassian-cli/commits/v0.4.1) - 2026-11-01
 
 ### Offline mirror

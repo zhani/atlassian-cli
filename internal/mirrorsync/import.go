@@ -402,9 +402,10 @@ func countMirror(dir string, m *mirror.Manifest) {
 		pages, _ := filepath.Glob(filepath.Join(root, "confluence", "pages", "*", "page.json"))
 		ja, _ := filepath.Glob(filepath.Join(root, "jira", "issues", "*", "attachments", "*"))
 		ca, _ := filepath.Glob(filepath.Join(root, "confluence", "pages", "*", "files", "*"))
+		xa, _ := filepath.Glob(filepath.Join(root, "jira", "issues", "*", "xray", "files", "*"))
 		m.Issues += len(issues)
 		m.Pages += len(pages)
-		m.Attachments += len(ja) + len(ca)
+		m.Attachments += len(ja) + len(ca) + len(xa)
 	}
 	m.Bytes = dirSize(dir)
 }

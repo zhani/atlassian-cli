@@ -18,7 +18,8 @@ an offline mirror (made elsewhere with `mirror export`, imported with
 shows an `exported_at`, the data is a snapshot as of that time and
 everything is read-only — find issues, descriptions, comments, attachments
 and pages as usual (`jira issue get KEY -o markdown`, `jira issue search JQL
--o json`, `jira issue attachment download KEY FILE`, `confluence search
+-o json`, `jira issue attachment download KEY FILE`, `jira issue evidence KEY --dir
+DIR` (Xray test evidence: the screenshots a tester attached to a step), `confluence search
 --text …`, `confluence page get ID -o markdown`, `bookmark list -o json`),
 but don't try to comment, transition or edit (it fails with "read-only
 mirror"); tell the user what to change instead. Say how current the data is
@@ -26,6 +27,12 @@ when it matters. History JQL (`WAS`, `CHANGED`) is not supported there. The
 user refreshes it by exporting and importing again.
 
 ## Rules for agents
+
+- Xray tests: `jira issue get KEY -o markdown` ends with a **Test Details**
+  section — every manual step and, from the latest test run, its status
+  (e.g. FAIL), comment, actual result, defects and evidence file names.
+  Download the evidence with `jira issue evidence KEY --dir DIR` and look at
+  the images before concluding why a step failed.
 
 - Always pass `-o markdown` (readable) or `-o json` (structured). Without `-o`,
   `jira issue search` / `list` and `jira feature` / `epic` / `sprint list`

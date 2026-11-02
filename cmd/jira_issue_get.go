@@ -22,6 +22,9 @@ var jiraIssueGetCmd = &cobra.Command{
 			if err != nil {
 				return err
 			}
+			// Xray tests: their latest runs (step results, evidence), shown as
+			// Test Details. Best effort: without Xray the issue prints as is.
+			_ = client.LoadXrayRuns(cmd.Context(), issue)
 			return newFormatter(cmd).PrintIssue(issue)
 		}
 

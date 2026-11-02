@@ -19,7 +19,7 @@ var explorerFields = []string{"summary", "status", "issuetype", "assignee", "pri
 
 // addExplorerFlags registers the output flags of the explorer commands.
 func addExplorerFlags(cmd *cobra.Command, items string) {
-	cmd.Flags().Int("max-results", 100, "Maximum number of "+items+" (and of issues per "+strings.TrimSuffix(items, "s")+")")
+	cmd.Flags().Int("max-results", defaultMaxResults(), "Maximum number of "+items+" (and of issues per "+strings.TrimSuffix(items, "s")+"; default from JIRA_MAX_RESULTS)")
 	cmd.Flags().BoolP("interactive", "i", false, "Launch the interactive explorer")
 	cmd.Flags().Bool("plain", false, "Print plain output even when running in a terminal")
 	cmd.Flags().Bool("all", false, "Include resolved "+items)
