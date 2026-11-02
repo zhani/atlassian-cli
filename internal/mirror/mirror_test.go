@@ -63,7 +63,9 @@ func fixture(t *testing.T) string {
 	t.Helper()
 	dir := t.TempDir()
 	now := time.Now().UTC()
-	recent := now.Add(-48 * time.Hour).Format("2006-01-02T15:04:05.000-0700")
+	// "Recent" must stay within this week for startOfWeek() queries: two days
+	// ago fell into last week on Mondays and Tuesdays.
+	recent := now.Add(-time.Second).Format("2006-01-02T15:04:05.000-0700")
 	old := now.AddDate(0, -3, 0).Format("2006-01-02T15:04:05.000-0700")
 	write(t, filepath.Join(dir, "mirror.json"), mirror.Manifest{Version: 1, ExportedAt: now.Format(time.RFC3339), JiraURL: origJira, ConfluenceURL: origConf})
 	write(t, filepath.Join(dir, "jira", "myself.json"), map[string]any{"name": "me", "displayName": "Me"})

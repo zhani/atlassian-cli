@@ -20,6 +20,12 @@ import (
 
 // Source is the subset of the Jira client the browser needs. *jira.Client
 // implements it.
+// xraySource is implemented by sources that can load an issue's Xray test
+// runs (*jira.Client); others show tests without run results.
+type xraySource interface {
+	LoadXrayRuns(ctx context.Context, issue *jira.Issue) error
+}
+
 type Source interface {
 	SearchIssuesAll(ctx context.Context, jql string, fields []string, limit int) ([]jira.Issue, error)
 	GetIssueRendered(ctx context.Context, key string) (*jira.Issue, error)
@@ -470,6 +476,9 @@ func (m model) loadIssue(issueKey string) tea.Cmd {
 	ctx, src := m.ctx, m.opts.Source
 	return func() tea.Msg {
 		issue, err := src.GetIssueRendered(ctx, issueKey)
+		if xs, ok := src.(xraySource); ok && err == nil {
+			_ = xs.LoadXrayRuns(ctx, issue) // best effort: Xray test runs for Test Details
+		}
 		return issueLoadedMsg{key: issueKey, issue: issue, err: err}
 	}
 }

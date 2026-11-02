@@ -30,6 +30,10 @@ type Issue struct {
 
 	// Names maps field IDs to display names; populated with expand=names.
 	Names map[string]string `json:"names,omitempty"`
+
+	// XrayRuns holds the Xray test runs its TestRunStatus field names, as
+	// returned by Xray; filled by Client.LoadXrayRuns, not part of the JSON.
+	XrayRuns []map[string]any `json:"-"`
 }
 
 // RenderedFields holds the HTML-rendered versions of an issue's text fields.

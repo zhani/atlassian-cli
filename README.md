@@ -159,6 +159,7 @@ These apply to Cloud and Server/DC alike.
 | Variable | Description |
 |----------|-------------|
 | `JIRA_DEFAULT_PROJECT` | Default project for `--project` / `-p` (`-p ""` searches all projects) |
+| `JIRA_MAX_RESULTS` | Default of `--max-results` for `jira issue list`/`search` and the explorers (built-in 500); the TUIs load that many up front. A `--max-results` flag still wins |
 | `JIRA_DEFAULT_BOARD` | Agile board ID for `jira sprint` |
 | `JIRA_FEATURE_TYPE` | Issue type of features for `jira feature` (default `New Feature`) |
 | `JIRA_FEATURE_LINK_TYPES` | Comma-separated link phrases from a feature to its issues (default `is implemented by,gets values from`) |
@@ -228,6 +229,11 @@ atlassian-cli jira issue attachment download PROJ-123 10123 --file out.pdf  # Do
 atlassian-cli jira issue attachment download PROJ-123 design.pdf --file - # Stream to stdout
 atlassian-cli jira issue attachment upload PROJ-123 shot.png log.txt      # Attach files
 atlassian-cli jira issue attachment delete PROJ-123 shot.png              # By filename or ID
+
+# Xray tests (Server/DC): `issue get -o markdown` and the issue browser show a Test Details
+# section — the manual steps with each step's latest result, comment and evidence
+atlassian-cli jira issue evidence PROJ-42 --list                          # Evidence + step attachments
+atlassian-cli jira issue evidence PROJ-42 --dir /tmp/evidence             # Download them (or name some)
 ```
 
 ### Listing issues with filters
@@ -511,7 +517,8 @@ off), the issues one step away from those (parent, subtasks, epic, every
 linked issue: "relates to", "is blocked by"…, and the tests in Xray's Test
 Coverage; not followed further), and each `--page` / bookmarked page with all its
 descendants. Issues keep their rendered descriptions, all comments and their
-attachments; pages keep their attachments and the images they link on the
+attachments, and Xray tests their latest test runs (step results, comments)
+with all evidence and step attachments; pages keep their attachments and the images they link on the
 same site. The bookmark file and the field names come along too.
 
 Move the archive over any channel and import it on the offline machine:

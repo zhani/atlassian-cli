@@ -19,7 +19,7 @@ import (
 // addIssueListFlags registers the output flags shared by commands that list
 // issues (search, list).
 func addIssueListFlags(cmd *cobra.Command) {
-	cmd.Flags().Int("max-results", 50, "Maximum number of results (fetched across pages)")
+	cmd.Flags().Int("max-results", defaultMaxResults(), "Maximum number of results (fetched across pages; default from JIRA_MAX_RESULTS)")
 	cmd.Flags().BoolP("interactive", "i", false, "Launch the interactive issue browser")
 	cmd.Flags().Bool("plain", false, "Print plain output even when running in a terminal")
 	cmd.MarkFlagsMutuallyExclusive("interactive", "plain")

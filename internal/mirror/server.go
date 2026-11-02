@@ -41,7 +41,8 @@ type Server struct {
 	pageAtts  map[string][]map[string]any // page ID -> attachment list
 	pageDir   map[string]string
 	confFiles map[string]string // attachment ID -> file
-	urlFiles  map[string]string // site path -> file
+	urlFiles  map[string]string // site path -> file (Confluence images, Xray evidence)
+	xrayRuns  map[string]string // Xray test run ID -> testrun-<id>.json
 	spaces    map[string]map[string]any
 
 	jiraMux, confMux   *http.ServeMux
@@ -67,7 +68,7 @@ func Load(dir string) (*Server, error) {
 		issues: map[string]map[string]any{}, issueDir: map[string]string{},
 		names: map[string]string{}, byName: map[string][]string{}, jiraAtt: map[string]string{},
 		pages: map[string]map[string]any{}, pageAtts: map[string][]map[string]any{}, pageDir: map[string]string{},
-		confFiles: map[string]string{}, urlFiles: map[string]string{}, spaces: map[string]map[string]any{},
+		confFiles: map[string]string{}, urlFiles: map[string]string{}, xrayRuns: map[string]string{}, spaces: map[string]map[string]any{},
 		jiraBase: JiraBase, confBase: ConfluenceBase, now: time.Now,
 	}
 	for _, root := range []string{dir, filepath.Join(dir, "local")} {
@@ -141,6 +142,17 @@ func (s *Server) loadRoot(root string) error {
 		files, _ := os.ReadDir(filepath.Join(d, "attachments"))
 		for _, f := range files {
 			s.jiraAtt[f.Name()] = filepath.Join(d, "attachments", f.Name())
+		}
+		runs, _ := filepath.Glob(filepath.Join(d, "xray", "testrun-*.json"))
+		for _, f := range runs {
+			id := strings.TrimSuffix(strings.TrimPrefix(filepath.Base(f), "testrun-"), ".json")
+			s.xrayRuns[id] = f
+		}
+		var urls map[string]string
+		if readJSON(filepath.Join(d, "xray", "urls.json"), &urls) == nil {
+			for path, name := range urls {
+				s.urlFiles[path] = filepath.Join(d, "xray", "files", name)
+			}
 		}
 	}
 	spaceFiles, _ := filepath.Glob(filepath.Join(root, "confluence", "spaces", "*.json"))
@@ -339,6 +351,7 @@ func (s *Server) routes() {
 	j.HandleFunc("GET /rest/api/2/issue/{key}/remotelink", func(w http.ResponseWriter, _ *http.Request) { s.writeJSON(w, []any{}) })
 	j.HandleFunc("GET /rest/api/2/attachment/{id}", s.getJiraAttachment)
 	j.HandleFunc("GET /rest/api/2/field", s.getFields)
+	j.HandleFunc("GET /rest/raven/1.0/api/testrun/{id}", s.getXrayRun)
 	j.HandleFunc("GET /rest/api/2/issueLinkType", func(w http.ResponseWriter, _ *http.Request) {
 		if s.links == nil {
 			s.writeJSON(w, map[string]any{"issueLinkTypes": []any{}})
@@ -428,6 +441,16 @@ func (s *Server) jiraAttachmentMeta(id string) map[string]any {
 		}
 	}
 	return nil
+}
+
+func (s *Server) getXrayRun(w http.ResponseWriter, r *http.Request) {
+	path, ok := s.xrayRuns[r.PathValue("id")]
+	var run map[string]any
+	if !ok || readJSON(path, &run) != nil {
+		notFound(w, "Test run "+r.PathValue("id"))
+		return
+	}
+	s.writeJSON(w, run)
 }
 
 func (s *Server) getJiraAttachment(w http.ResponseWriter, r *http.Request) {
