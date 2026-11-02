@@ -170,6 +170,23 @@ func (f File) LocalName() string {
 // for every run its status, comment, actual result and evidence. Empty when
 // the issue has neither steps nor runs.
 func Markdown(steps []Step, runs []map[string]any) string {
+	return MarkdownEmbed(steps, runs, nil)
+}
+
+// MarkdownEmbed is Markdown with embed, when set, adding markdown for each
+// evidence or step attachment file after the line naming it (the TUI embeds
+// images there to draw them in place); embed returns "" to skip a file.
+func MarkdownEmbed(steps []Step, runs []map[string]any, embed func(File) string) string {
+	embedAll := func(sb *strings.Builder, fs []File) {
+		if embed == nil {
+			return
+		}
+		for _, f := range fs {
+			if e := embed(f); e != "" {
+				sb.WriteString(e + "\n\n")
+			}
+		}
+	}
 	if len(steps) == 0 && len(runs) == 0 {
 		return ""
 	}
@@ -178,7 +195,8 @@ func Markdown(steps []Step, runs []map[string]any) string {
 	for _, run := range runs {
 		fmt.Fprintf(&sb, "\n%s\n", runSummary(run))
 		if fs := Files(run["evidences"]); len(fs) > 0 {
-			fmt.Fprintf(&sb, "\nRun evidence: %s\n", fileList(fs))
+			fmt.Fprintf(&sb, "\nRun evidence: %s\n\n", fileList(fs))
+			embedAll(&sb, fs)
 		}
 	}
 	results := map[int]map[string]any{} // step index -> latest run's step result
@@ -209,6 +227,7 @@ func Markdown(steps []Step, runs []map[string]any) string {
 		}
 		if len(st.Files) > 0 {
 			fmt.Fprintf(&sb, "**Attachments:** %s\n\n", fileList(st.Files))
+			embedAll(&sb, st.Files)
 		}
 		if r == nil {
 			continue
@@ -221,6 +240,7 @@ func Markdown(steps []Step, runs []map[string]any) string {
 		}
 		if fs := Files(r["evidences"]); len(fs) > 0 {
 			fmt.Fprintf(&sb, "**Evidence:** %s\n\n", fileList(fs))
+			embedAll(&sb, fs)
 		}
 		if ds := defects(r["defects"]); ds != "" {
 			fmt.Fprintf(&sb, "**Defects:** %s\n\n", ds)

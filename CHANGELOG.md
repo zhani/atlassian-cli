@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+### Interactive browsers
+- `i` in the issue detail view shows the issue's images full screen, like the Confluence page browser: the evidence screenshots of its Xray test runs step by step (titled e.g. "Step 6 (FAIL) evidence"), its manual steps' attachments, then image attachments. Works offline from a mirror.
+- The issue detail view draws images in place, like the Confluence page browser: Xray evidence under the step it belongs to, step attachments, images in the description, and image attachments in a new Attachments section (kitty placeholders; coloured blocks in other terminals). Images on other hosts are fetched without credentials.
+
 ## [v0.4.2](https://github.com/zhani/atlassian-cli/commits/v0.4.2) - 2026-11-02
 
 ### Jira

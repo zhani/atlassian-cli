@@ -212,14 +212,20 @@ func fetchURL(ctx context.Context, u string) (io.ReadCloser, error) {
 
 // imageBox is the cell box an image gets in the page view.
 func (m treeModel) imageBox(im *pageImage) (cols, rows int) {
+	return imageBox(m.gfx, im, m.content.Width, m.content.Height)
+}
+
+// imageBox is the cell box an image gets in a text view of viewW×viewH
+// cells (page or issue view).
+func imageBox(g *graphics, im *pageImage, viewW, viewH int) (cols, rows int) {
 	w, h := im.img.Size()
 	cellW, cellH := 8, 16
-	if m.gfx != nil {
-		cellW, cellH = m.gfx.cellW, m.gfx.cellH
+	if g != nil {
+		cellW, cellH = g.cellW, g.cellH
 	}
-	maxCols := max(4, m.content.Width-6)
-	maxRows := max(4, m.content.Height-3)
-	if m.gfx.kitty() {
+	maxCols := max(4, viewW-6)
+	maxRows := max(4, viewH-3)
+	if g.kitty() {
 		maxCols, maxRows = min(maxCols, termimg.MaxKittyCells), min(maxRows, termimg.MaxKittyCells)
 		return termimg.Fit(w, h, maxCols, maxRows, cellW, cellH)
 	}
@@ -232,6 +238,12 @@ func (m treeModel) imageBox(im *pageImage) (cols, rows int) {
 // placeImages replaces the image markers of rendered page text by the
 // images (or captions) and returns the line of each image.
 func (m treeModel) placeImages(rendered string, imgs []*pageImage) (string, []int) {
+	return placeImages(m.gfx, rendered, imgs, m.content.Width, m.content.Height)
+}
+
+// placeImages replaces the image markers of rendered text by the images (or
+// captions) for a view of viewW×viewH cells; it returns each image's line.
+func placeImages(g *graphics, rendered string, imgs []*pageImage, viewW, viewH int) (string, []int) {
 	if len(imgs) == 0 {
 		return rendered, nil
 	}
@@ -254,17 +266,17 @@ func (m treeModel) placeImages(rendered string, imgs []*pageImage) (string, []in
 		}
 		im := imgs[n]
 		where[n] = len(out)
-		out = append(out, m.imageCaption(n, im))
-		out = append(out, m.imageLines(im)...)
+		out = append(out, imageCaption(g, n, im))
+		out = append(out, imageLines(g, im, viewW, viewH)...)
 	}
 	return strings.Join(out, "\n"), where
 }
 
-func (m treeModel) imageCaption(n int, im *pageImage) string {
+func imageCaption(g *graphics, n int, im *pageImage) string {
 	caption := fmt.Sprintf("  ▣ image %d: %s", n+1, im.name)
-	inPage := m.gfx != nil && m.gfx.caps.InPage != termimg.Off
+	inPage := g != nil && g.caps.InPage != termimg.Off
 	switch {
-	case m.gfx == nil || m.gfx.caps.InPage == termimg.Off && m.gfx.caps.Preview == termimg.Off:
+	case g == nil || g.caps.InPage == termimg.Off && g.caps.Preview == termimg.Off:
 	case n >= maxPageImages:
 		caption += " (not loaded)"
 	case im.err != nil:
@@ -277,19 +289,19 @@ func (m treeModel) imageCaption(n int, im *pageImage) string {
 	return styleDim.Render(caption)
 }
 
-// imageLines draws a loaded image for the page view.
-func (m treeModel) imageLines(im *pageImage) []string {
-	if im.img == nil || m.gfx == nil || m.gfx.caps.InPage == termimg.Off {
+// imageLines draws a loaded image for a view of viewW×viewH cells.
+func imageLines(g *graphics, im *pageImage, viewW, viewH int) []string {
+	if im.img == nil || g == nil || g.caps.InPage == termimg.Off {
 		return nil
 	}
-	cols, rows := m.imageBox(im)
+	cols, rows := imageBox(g, im, viewW, viewH)
 	if cols <= 0 || rows <= 0 {
 		return nil
 	}
 	var lines []string
-	if m.gfx.kitty() && im.kittyID != 0 {
+	if g.kitty() && im.kittyID != 0 {
 		if im.placed != [2]int{cols, rows} {
-			m.gfx.out.WriteSeqs(m.gfx.caps.Wrap(termimg.KittyPlace(im.kittyID, 1, cols, rows), false)) //nolint:errcheck
+			g.out.WriteSeqs(g.caps.Wrap(termimg.KittyPlace(im.kittyID, 1, cols, rows), false)) //nolint:errcheck
 			im.placed = [2]int{cols, rows}
 		}
 		lines = termimg.KittyPlaceholders(im.kittyID, cols, rows)
@@ -308,19 +320,25 @@ func (m treeModel) imageLines(im *pageImage) []string {
 
 // transmitKitty sends a loaded image to kitty in the background.
 func (m treeModel) transmitKitty(pageID string, idx int, im *pageImage) tea.Cmd {
-	if !m.gfx.kitty() || im.img == nil {
+	return kittyTransmitCmd(m.gfx, im, m.content.Width, m.content.Height, func(id uint32, cols, rows int, err error) tea.Msg {
+		return kittyReadyMsg{pageID: pageID, idx: idx, id: id, cols: cols, rows: rows, err: err}
+	})
+}
+
+// kittyTransmitCmd sends a loaded image to kitty in the background; done
+// builds the message reporting its ID and placement size.
+func kittyTransmitCmd(g *graphics, im *pageImage, viewW, viewH int, done func(id uint32, cols, rows int, err error) tea.Msg) tea.Cmd {
+	if !g.kitty() || im.img == nil {
 		return nil
 	}
 	id := termimg.NewKittyID()
-	cols, rows := m.imageBox(im)
-	g := m.gfx
+	cols, rows := imageBox(g, im, viewW, viewH)
 	return func() tea.Msg {
 		var seqs []string
 		for _, s := range termimg.KittyTransmit(id, im.img.PNG, cols, rows) {
 			seqs = append(seqs, g.caps.Wrap(s, false))
 		}
-		err := g.out.WriteSeqs(seqs...)
-		return kittyReadyMsg{pageID: pageID, idx: idx, id: id, cols: cols, rows: rows, err: err}
+		return done(id, cols, rows, g.out.WriteSeqs(seqs...))
 	}
 }
 

@@ -330,6 +330,7 @@ browser). Piped output is never interactive.
 | `o` | Open in browser |
 | `c` / `ctrl+k` | Copy issue URL / key to the clipboard |
 | `ctrl+r` / `F5` | Refresh |
+| `i` | Detail view: show the issue's images full screen — Xray evidence step by step, step attachments, image attachments (`n`/`p` next/previous, `q` back). The detail view also draws them in place (kitty placeholders, or coloured blocks elsewhere), like the Confluence browser, with images in the description and an Attachments list |
 | `b` | Bookmark the issue (again: remove the bookmark) |
 | `B` | Bookmarks: pick a bookmarked issue, query, feature, epic or sprint to show here |
 | `S` | Bookmark the list's query |

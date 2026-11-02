@@ -16,6 +16,7 @@ import (
 	"github.com/charmbracelet/lipgloss"
 	"github.com/zhani/atlassian-cli/internal/bookmarks"
 	"github.com/zhani/atlassian-cli/internal/jira"
+	"github.com/zhani/atlassian-cli/internal/termimg"
 )
 
 // Source is the subset of the Jira client the browser needs. *jira.Client
@@ -128,6 +129,10 @@ type model struct {
 	detail    viewport.Model
 	cache     map[string]*jira.Issue
 
+	gfx      *graphics                        // terminal image support; nil = none
+	imgCache map[string][]termimg.PreviewItem // full-screen preview images per issue (issueimages.go)
+	inline   map[string]*issueInline          // images drawn in the detail view (issueinline.go)
+
 	transitionKey    string
 	transitions      []jira.Transition
 	transitionCursor int
@@ -170,18 +175,20 @@ func newModel(ctx context.Context, opts Options, render markdownRenderer) model 
 	vp.KeyMap = viewportKeyMap()
 
 	m := model{
-		ctx:     ctx,
-		opts:    opts,
-		render:  render,
-		table:   t,
-		filter:  f,
-		detail:  vp,
-		cache:   map[string]*jira.Issue{},
-		spinner: spinner.New(spinner.WithSpinner(spinner.Dot)),
-		help:    help.New(),
-		issues:  opts.Issues,
-		width:   80,
-		height:  24,
+		ctx:      ctx,
+		opts:     opts,
+		render:   render,
+		table:    t,
+		filter:   f,
+		detail:   vp,
+		cache:    map[string]*jira.Issue{},
+		imgCache: map[string][]termimg.PreviewItem{},
+		inline:   map[string]*issueInline{},
+		spinner:  spinner.New(spinner.WithSpinner(spinner.Dot)),
+		help:     help.New(),
+		issues:   opts.Issues,
+		width:    80,
+		height:   24,
 	}
 	m.applyFilter()
 	m.layout()
@@ -247,6 +254,21 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 
+	case issueImagesMsg:
+		return m.handleIssueImages(msg)
+
+	case inlineImageMsg:
+		return m.handleInlineImage(msg)
+
+	case inlineKittyMsg:
+		return m.handleInlineKitty(msg)
+
+	case previewDoneMsg:
+		if msg.err != nil {
+			m.setStatus("Image preview: "+msg.err.Error(), true)
+		}
+		return m, nil
+
 	case issueLoadedMsg:
 		m.loading = false
 		if msg.err != nil {
@@ -257,7 +279,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.mode == modeDetail && m.detailKey == msg.key {
 			m.refreshDetailContent()
 		}
-		return m, nil
+		return m, m.loadInline(msg.key)
 
 	case transitionsLoadedMsg:
 		m.loading = false
@@ -324,6 +346,8 @@ func (m model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	case key.Matches(msg, keys.refresh):
 		m.cache = map[string]*jira.Issue{}
+		m.imgCache = map[string][]termimg.PreviewItem{}
+		m.clearInline()
 		cmds := []tea.Cmd{m.startLoading(), m.loadIssues()}
 		if m.mode == modeDetail {
 			cmds = append(cmds, m.loadIssue(m.detailKey))
@@ -349,6 +373,8 @@ func (m model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		case m.opts.Bookmarks != nil && key.Matches(msg, bookmarkKeys.toggle):
 			m.setStatus(toggleBookmark(m.opts.Bookmarks, m.issueBookmark(issueKey)))
 			return m, nil
+		case m.mode == modeDetail && key.Matches(msg, issueImagesKey):
+			return m.previewIssueImages()
 		}
 	}
 	if m.opts.Bookmarks != nil && key.Matches(msg, bookmarkKeys.picker) {
@@ -570,7 +596,14 @@ func (m *model) refreshDetailContent() {
 		m.detail.SetContent(styleDim.Render("  Loading " + m.detailKey + "…"))
 		return
 	}
-	m.detail.SetContent(m.render(issueMarkdown(issue, m.opts.DetailFields), max(20, m.width-2)))
+	width := max(20, m.width-2)
+	if m.inlineImages() {
+		in := m.prepareInline(issue)
+		content, _ := placeImages(m.gfx, m.render(in.md, width), in.imgs, m.detail.Width, m.detail.Height)
+		m.detail.SetContent(content)
+		return
+	}
+	m.detail.SetContent(m.render(issueMarkdown(issue, m.opts.DetailFields), width))
 }
 
 // --- views ---
@@ -664,6 +697,10 @@ func (m model) transitionView() string {
 // user quits.
 func RunIssueList(ctx context.Context, opts Options) error {
 	m := newModel(ctx, opts, glamourRenderer())
-	_, err := tea.NewProgram(m, tea.WithAltScreen(), tea.WithContext(ctx)).Run()
+	m.gfx = newGraphics()
+	final, err := tea.NewProgram(m, tea.WithAltScreen(), tea.WithContext(ctx), tea.WithOutput(m.gfx.out)).Run()
+	if fm, ok := final.(model); ok {
+		fm.clearInline() // don't leave images in kitty's memory
+	}
 	return err
 }
