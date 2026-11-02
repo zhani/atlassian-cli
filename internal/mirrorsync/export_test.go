@@ -13,6 +13,7 @@ import (
 
 	"github.com/zhani/atlassian-cli/internal/config"
 	"github.com/zhani/atlassian-cli/internal/jira"
+	"github.com/zhani/atlassian-cli/internal/xray"
 )
 
 func TestActiveSprintIDs(t *testing.T) {
@@ -189,13 +190,13 @@ func TestCoverageKeys(t *testing.T) {
 			"notRunJql": "issueKey IN (T-3)", "status": "NOTRUN"},
 		map[string]any{"issueKey": "R-2", "unknownJql": "key in (T-4) AND project = X"},
 	}
-	got := coverageKeys(v)
+	got := xray.CoverageTests(v)
 	sort.Strings(got)
 	if want := []string{"T-1", "T-2", "T-3", "T-4"}; !reflect.DeepEqual(got, want) {
 		t.Errorf("got %v, want %v", got, want)
 	}
 	for _, other := range []any{"PROJ-1", map[string]any{"value": "issueKey in (X-1)"}, nil, 42.0} {
-		if k := coverageKeys(other); len(k) != 0 {
+		if k := xray.CoverageTests(other); len(k) != 0 {
 			t.Errorf("%v: got %v, want nothing", other, k)
 		}
 	}

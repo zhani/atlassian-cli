@@ -73,6 +73,7 @@ const (
 	modeList mode = iota
 	modeDetail
 	modeTransition
+	modeLinks // link picker over the detail view (issuelinks.go)
 )
 
 var (
@@ -132,6 +133,10 @@ type model struct {
 	gfx      *graphics                        // terminal image support; nil = none
 	imgCache map[string][]termimg.PreviewItem // full-screen preview images per issue (issueimages.go)
 	inline   map[string]*issueInline          // images drawn in the detail view (issueinline.go)
+
+	links       []linkItem // link picker entries (L)
+	linkCursor  int
+	detailTrail []string // issues the detail view came from by following links
 
 	transitionKey    string
 	transitions      []jira.Transition
@@ -272,6 +277,12 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case issueLoadedMsg:
 		m.loading = false
 		if msg.err != nil {
+			if m.mode == modeDetail && m.detailKey == msg.key {
+				if back, ok := m.followBack(); ok { // a followed link that can't be opened
+					back.setStatus("Can't open "+msg.key+": "+msg.err.Error(), true)
+					return back, nil
+				}
+			}
 			m.setStatus("Failed to load "+msg.key+": "+msg.err.Error(), true)
 			return m, nil
 		}
@@ -335,6 +346,9 @@ func (m model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	if m.mode == modeTransition {
 		return m.handleTransitionKey(msg)
 	}
+	if m.mode == modeLinks {
+		return m.handleLinksKey(msg)
+	}
 
 	switch {
 	case key.Matches(msg, keys.quit):
@@ -375,6 +389,8 @@ func (m model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m, nil
 		case m.mode == modeDetail && key.Matches(msg, issueImagesKey):
 			return m.previewIssueImages()
+		case m.mode == modeDetail && key.Matches(msg, issueLinksKey):
+			return m.openLinks()
 		}
 	}
 	if m.opts.Bookmarks != nil && key.Matches(msg, bookmarkKeys.picker) {
@@ -400,6 +416,7 @@ func (m model) openDetail() (tea.Model, tea.Cmd) {
 	}
 	m.mode = modeDetail
 	m.detailKey = issueKey
+	m.detailTrail = nil
 	m.detail.GotoTop()
 	m.refreshDetailContent()
 	if _, ok := m.cache[issueKey]; ok {
@@ -434,6 +451,9 @@ func (m model) handleListKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 func (m model) handleDetailKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch {
 	case key.Matches(msg, keys.back):
+		if back, ok := m.followBack(); ok {
+			return back, nil
+		}
 		m.mode = modeList
 		return m, nil
 	case key.Matches(msg, keys.top):
@@ -627,6 +647,9 @@ func (m model) View() string {
 	if m.mode == modeTransition {
 		body = m.transitionView()
 	}
+	if m.mode == modeLinks {
+		body = m.linksView()
+	}
 	return lipgloss.JoinVertical(lipgloss.Left, m.titleView(), body, m.footerView())
 }
 
@@ -635,6 +658,11 @@ func (m model) titleView() string {
 	switch m.mode {
 	case modeDetail:
 		title = m.detailKey
+		for i := len(m.detailTrail) - 1; i >= 0 && i >= len(m.detailTrail)-3; i-- {
+			title += " ← " + m.detailTrail[i]
+		}
+	case modeLinks:
+		title = "Links of " + m.detailKey
 	case modeTransition:
 		title = "Move " + m.transitionKey
 	default:

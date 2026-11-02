@@ -670,7 +670,7 @@ func (e *Exporter) relatedKeys() []string {
 		}
 		for id, v := range f {
 			if strings.HasPrefix(id, "customfield_") {
-				for _, k := range coverageKeys(v) {
+				for _, k := range xray.CoverageTests(v) {
 					add(k)
 				}
 			}
@@ -678,37 +678,6 @@ func (e *Exporter) relatedKeys() []string {
 	}
 	sort.Strings(out)
 	return out
-}
-
-var (
-	inListRe = regexp.MustCompile(`(?i)\b(?:issue)?key\s+in\s*\(([^)]*)\)`)
-	issueKey = regexp.MustCompile(`\b[A-Z][A-Z0-9_]*-\d+\b`)
-)
-
-// coverageKeys returns the tests named by an Xray Requirement Status value:
-// a list of per-requirement entries whose …Jql strings ("okJql",
-// "notRunJql"…) are `issueKey in (KEY, …)`. Recognised by that shape, as the
-// field's ID and even its name differ between servers; anything else yields
-// nothing.
-func coverageKeys(v any) []string {
-	entries, _ := v.([]any)
-	if m, ok := v.(map[string]any); ok {
-		entries = []any{m}
-	}
-	var keys []string
-	for _, en := range entries {
-		m, _ := en.(map[string]any)
-		for name, x := range m {
-			jql, ok := x.(string)
-			if !ok || !strings.HasSuffix(name, "Jql") {
-				continue
-			}
-			for _, in := range inListRe.FindAllStringSubmatch(jql, -1) {
-				keys = append(keys, issueKey.FindAllString(in[1], -1)...)
-			}
-		}
-	}
-	return keys
 }
 
 func readJSONFile(path string, v any) error {

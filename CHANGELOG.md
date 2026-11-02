@@ -3,6 +3,7 @@
 ## Unreleased
 
 ### Interactive browsers
+- `L` in the issue detail view lists the issues it points to — parent, epic, issue links, subtasks, the Xray tests covering it and keys mentioned in its description and comments — and opens the chosen one; `esc` walks back along the way you came (shown in the title, e.g. `P-2 ← P-1`). A link that can't be opened (e.g. not in the mirror) leaves you where you were.
 - `i` in the issue detail view shows the issue's images full screen, like the Confluence page browser: the evidence screenshots of its Xray test runs step by step (titled e.g. "Step 6 (FAIL) evidence"), its manual steps' attachments, then image attachments. Works offline from a mirror.
 - The issue detail view draws images in place, like the Confluence page browser: Xray evidence under the step it belongs to, step attachments, images in the description, and image attachments in a new Attachments section (kitty placeholders; coloured blocks in other terminals). Images on other hosts are fetched without credentials.
 
