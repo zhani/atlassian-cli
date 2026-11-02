@@ -23,6 +23,13 @@ const maxComments = 5
 // back to the raw wiki markup. detailFields limits the custom fields shown
 // (names or IDs, in order); empty shows all non-empty ones.
 func issueMarkdown(issue *jira.Issue, detailFields []string) string {
+	return issueMarkdownWith(issue, detailFields, false)
+}
+
+// issueMarkdownWith is issueMarkdown that, with embedImages, also embeds the
+// Xray evidence and step attachment images and the image attachments as
+// markdown images, for the view to draw in place (see issueinline.go).
+func issueMarkdownWith(issue *jira.Issue, detailFields []string, embedImages bool) string {
 	f := issue.Fields
 	var sb strings.Builder
 
@@ -58,8 +65,30 @@ func issueMarkdown(issue *jira.Issue, detailFields []string) string {
 	for _, sec := range sections {
 		fmt.Fprintf(&sb, "\n## %s\n\n%s\n", sec[0], sec[1])
 	}
-	if td := xray.Markdown(xray.ManualSteps(f.Custom), issue.XrayRuns); td != "" {
+	var embed func(xray.File) string
+	if embedImages {
+		embed = func(fl xray.File) string {
+			if !isImage(fl.Name, "") {
+				return ""
+			}
+			return markdownImageOf(fl.Name, fl.URL)
+		}
+	}
+	if td := xray.MarkdownEmbed(xray.ManualSteps(f.Custom), issue.XrayRuns, embed); td != "" {
 		sb.WriteString("\n" + td)
+	}
+	if len(f.Attachment) > 0 {
+		sb.WriteString("\n## Attachments\n\n")
+		for _, a := range f.Attachment {
+			fmt.Fprintf(&sb, "- %s\n", a.Filename)
+		}
+		if embedImages {
+			for _, a := range f.Attachment {
+				if isImage(a.Filename, a.MimeType) {
+					sb.WriteString("\n" + markdownImageOf(a.Filename, a.Content) + "\n")
+				}
+			}
+		}
 	}
 	if len(short) > 0 {
 		sb.WriteString("\n## Fields\n\n")

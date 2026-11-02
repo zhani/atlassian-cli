@@ -333,6 +333,10 @@ func (m explorerModel) sidebarView() string {
 // quits.
 func RunExplorer(ctx context.Context, opts ExplorerOptions) error {
 	m := newExplorer(ctx, opts, glamourRenderer())
-	_, err := tea.NewProgram(m, tea.WithAltScreen(), tea.WithContext(ctx)).Run()
+	m.right.gfx = newGraphics()
+	final, err := tea.NewProgram(m, tea.WithAltScreen(), tea.WithContext(ctx), tea.WithOutput(m.right.gfx.out)).Run()
+	if fm, ok := final.(explorerModel); ok {
+		fm.right.clearInline()
+	}
 	return err
 }

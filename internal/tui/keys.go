@@ -95,10 +95,10 @@ func (m model) helpKeys() helpKeys {
 		return helpKeys{short: b, full: [][]key.Binding{b}}
 	case modeDetail:
 		return helpKeys{
-			short: append(append([]key.Binding{keys.back, keys.open, keys.transition}, bm...), keys.help, keys.quit),
+			short: append(append([]key.Binding{keys.back, keys.open, keys.transition, issueImagesKey}, bm...), keys.help, keys.quit),
 			full: [][]key.Binding{
 				{keys.up, keys.down, keys.pageUp, keys.pageDown, keys.top, keys.bottom},
-				actions,
+				append(actions, issueImagesKey),
 				{keys.back, keys.help, keys.quit},
 			},
 		}
