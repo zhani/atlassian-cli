@@ -12,13 +12,13 @@ import (
 	"github.com/zhani/atlassian-cli/internal/xray"
 )
 
-// Following links from the detail view: L lists the issues the shown issue
+// Following links from the detail view: l lists the issues the shown issue
 // points to (parent, epic, issue links, subtasks, Xray tests covering it,
 // keys mentioned in its text); enter opens one in the detail view and esc
 // walks back the way you came.
 
 var (
-	issueLinksKey = key.NewBinding(key.WithKeys("L"), key.WithHelp("L", "follow links"))
+	issueLinksKey = key.NewBinding(key.WithKeys("l"), key.WithHelp("l", "follow links"))
 	linkOpenKey   = key.NewBinding(key.WithKeys("enter"), key.WithHelp("enter", "open"))
 )
 

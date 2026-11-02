@@ -78,7 +78,7 @@ func TestFollowLinksAndBack(t *testing.T) {
 		t.Fatalf("mode %v key %s", m.mode, m.detailKey)
 	}
 
-	m = step(t, m, "L")
+	m = step(t, m, "l")
 	if m.mode != modeLinks || !strings.Contains(m.View(), "Links of P-1") || !strings.Contains(m.View(), "blocks") {
 		t.Fatalf("link picker not shown:\n%s", m.View())
 	}
@@ -96,13 +96,13 @@ func TestFollowLinksAndBack(t *testing.T) {
 	}
 
 	// A link that can't be opened (e.g. not in the mirror) leaves you where you were.
-	m = step(t, m, "enter", "L", "down", "down", "down", "enter") // → is blocked by P-3 (unknown)
+	m = step(t, m, "enter", "l", "down", "down", "down", "enter") // → is blocked by P-3 (unknown)
 	if m.detailKey != "P-1" || m.mode != modeDetail || !strings.Contains(m.status, "Can't open P-3") {
 		t.Errorf("unopenable link: key %s mode %v status %q", m.detailKey, m.mode, m.status)
 	}
 
 	// esc in the picker closes it without moving.
-	m = step(t, m, "L", "esc")
+	m = step(t, m, "l", "esc")
 	if m.mode != modeDetail || m.detailKey != "P-1" {
 		t.Errorf("esc in picker: %v %s", m.mode, m.detailKey)
 	}
@@ -112,7 +112,7 @@ func TestNoLinks(t *testing.T) {
 	is := jira.Issue{Key: "P-1", Fields: jira.IssueFields{Summary: "lonely"}}
 	m := newModel(context.Background(), Options{Source: &fakeSource{issues: []jira.Issue{is}}, Issues: []jira.Issue{is}}, plainRenderer)
 	next, _ := m.Update(tea.WindowSizeMsg{Width: 120, Height: 40})
-	m = step(t, next.(model), "enter", "L")
+	m = step(t, next.(model), "enter", "l")
 	if m.mode != modeDetail || !strings.Contains(m.status, "No links on P-1") {
 		t.Errorf("mode %v status %q", m.mode, m.status)
 	}

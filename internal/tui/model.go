@@ -134,7 +134,7 @@ type model struct {
 	imgCache map[string][]termimg.PreviewItem // full-screen preview images per issue (issueimages.go)
 	inline   map[string]*issueInline          // images drawn in the detail view (issueinline.go)
 
-	links       []linkItem // link picker entries (L)
+	links       []linkItem // link picker entries (l)
 	linkCursor  int
 	detailTrail []string // issues the detail view came from by following links
 
