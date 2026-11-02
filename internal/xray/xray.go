@@ -9,6 +9,7 @@ package xray
 import (
 	"fmt"
 	"net/url"
+	"regexp"
 	"sort"
 	"strconv"
 	"strings"
@@ -348,5 +349,36 @@ func sortedKeys(m map[string]any) []string {
 		keys = append(keys, k)
 	}
 	sort.Strings(keys)
+	return keys
+}
+
+var (
+	inListRe = regexp.MustCompile(`(?i)\b(?:issue)?key\s+in\s*\(([^)]*)\)`)
+	keyRe    = regexp.MustCompile(`\b[A-Z][A-Z0-9_]*-\d+\b`)
+)
+
+// CoverageTests returns the tests named by an Xray Requirement Status value
+// ("Test Coverage"): a list of per-requirement entries whose …Jql strings
+// ("okJql", "notRunJql"…) are `issueKey in (KEY, …)`. Recognised by that
+// shape, as the field's ID and even its name differ between servers;
+// anything else yields nothing.
+func CoverageTests(v any) []string {
+	entries, _ := v.([]any)
+	if m, ok := v.(map[string]any); ok {
+		entries = []any{m}
+	}
+	var keys []string
+	for _, en := range entries {
+		m, _ := en.(map[string]any)
+		for _, name := range sortedKeys(m) {
+			jql, ok := m[name].(string)
+			if !ok || !strings.HasSuffix(name, "Jql") {
+				continue
+			}
+			for _, in := range inListRe.FindAllStringSubmatch(jql, -1) {
+				keys = append(keys, keyRe.FindAllString(in[1], -1)...)
+			}
+		}
+	}
 	return keys
 }
