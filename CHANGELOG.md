@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## [v0.4.3](https://github.com/zhani/atlassian-cli/commits/v0.4.3) - 2026-11-02
 
 ### Interactive browsers
 - `l` in the issue detail view lists the issues it points to — parent, epic, issue links, subtasks, the Xray tests covering it and keys mentioned in its description and comments — and opens the chosen one; `esc` walks back along the way you came (shown in the title, e.g. `P-2 ← P-1`). A link that can't be opened (e.g. not in the mirror) leaves you where you were.
