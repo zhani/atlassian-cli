@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## [v0.4.2](https://github.com/zhani/atlassian-cli/commits/v0.4.2) - 2026-11-02
 
 ### Jira
 - `--max-results` of `jira issue list`/`search` now defaults to 500 (was 50) and of the feature/epic/sprint explorers to 500 (was 100), so the issue browser shows a whole board or mirror. `JIRA_MAX_RESULTS` changes that default; a `--max-results` flag still wins.
