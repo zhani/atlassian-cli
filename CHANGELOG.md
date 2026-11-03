@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## [v0.4.4](https://github.com/zhani/atlassian-cli/commits/v0.4.4) - 2026-11-03
 
 ### Offline mirror
 - `mirror export --only jira|confluence` exports one side, so Jira (changes often) and Confluence (changes rarely) can be refreshed on their own schedules into the same mirror, where links between them keep working. Importing one side leaves the other side's items, URL and freshness alone, and `--prune` prunes only that side.
