@@ -22,7 +22,7 @@ type version struct {
 	Message string `json:"message"`
 }
 
-const demoStorage = `<h1>Welcome</h1><p>This page is served by <strong>fakejira</strong>.</p>` +
+const demoStorage = `<h1>Welcome</h1><p>This page is served by <strong>devserver</strong>.</p>` +
 	`<ac:structured-macro ac:name="code"><ac:parameter ac:name="language">go</ac:parameter><ac:plain-text-body><![CDATA[func main() {
 	fmt.Println("hi")
 }]]></ac:plain-text-body></ac:structured-macro>` +

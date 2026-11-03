@@ -717,14 +717,14 @@ go test --shuffle on --race ./...
 golangci-lint run
 ```
 
-`tools/fakejira` is a local Jira/Confluence server for trying the CLI and the
+`tools/devserver` is a local Jira/Confluence server for trying the CLI and the
 TUIs without a real instance. It serves exported issues (one directory per
 issue with `<KEY>.json` and its attachments, or one JSON array file) over the
 REST endpoints the CLI uses, plus a demo Confluence space with pages and
 images, a Scrum board with sprints, and epics:
 
 ```bash
-go run ./tools/fakejira -data ./my-issues      # listens on 127.0.0.1:18080
+go run ./tools/devserver -data ./my-issues      # listens on 127.0.0.1:18080
 export JIRA_URL=http://127.0.0.1:18080 JIRA_PERSONAL_TOKEN=x
 export CONFLUENCE_URL=http://127.0.0.1:18080 CONFLUENCE_PERSONAL_TOKEN=x
 ./atlassian-cli jira issue list -p ""

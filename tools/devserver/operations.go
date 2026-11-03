@@ -250,7 +250,7 @@ func (s *store) saveUpload(r *http.Request, owner string) (attachment, error) {
 		return attachment{}, err
 	}
 	defer file.Close()
-	dir, err := os.MkdirTemp("", "fakejira-upload-")
+	dir, err := os.MkdirTemp("", "devserver-upload-")
 	if err != nil {
 		return attachment{}, err
 	}
