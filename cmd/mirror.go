@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"os"
 	"strconv"
+	"strings"
 
 	"github.com/spf13/cobra"
 	"github.com/zhani/atlassian-cli/internal/bookmarks"
@@ -51,10 +52,19 @@ from the exported ones come along (parent, subtasks, epic, every linked issue in
 either direction, Xray test coverage), but not their own relatives. Every issue and page carries its attachments.
 
 Without --since the archive is a full snapshot; with it, only issues and
-pages changed since then.`,
+pages changed since then.
+
+--only jira|confluence exports one side (bookmarks of that kind only;
+the bookmark file always comes along). Jira changes often and Confluence
+rarely, so export them on their own schedules: importing one side leaves
+the other side of the mirror as it is (and --prune only prunes that side),
+and links between the two keep resolving because both live in the same
+mirror.`,
 	Example: `  atlassian-cli mirror export --out mirror.tar.gz
   atlassian-cli mirror export --out mirror.tar.gz --board 42 --jql "project = PROJ AND sprint in openSprints()"
-  atlassian-cli mirror export --out delta.tar.gz --since -7d`,
+  atlassian-cli mirror export --out delta.tar.gz --since -7d
+  atlassian-cli mirror export --out jira.tar.gz --only jira --since -2d
+  atlassian-cli mirror export --out wiki.tar.gz --only confluence --since -14d`,
 	Args: cobra.NoArgs,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		mirror.Disabled = true // export reads the real servers
@@ -66,6 +76,7 @@ pages changed since then.`,
 		noSprint, _ := cmd.Flags().GetBool("no-active-sprint")
 		noMine, _ := cmd.Flags().GetBool("no-my-issues")
 		since, _ := cmd.Flags().GetString("since")
+		only, _ := cmd.Flags().GetString("only")
 
 		e := &mirrorsync.Exporter{}
 		var jerr, cerr error
@@ -79,7 +90,7 @@ pages changed since then.`,
 			return fmt.Errorf("neither Jira nor Confluence is configured: %w", errors.Join(jerr, cerr))
 		}
 		_, err := e.Export(cmd.Context(), mirrorsync.ExportOptions{
-			Out: out, Boards: boards, JQL: jqls, Pages: pages, Bookmarks: !noBookmarks, Since: since, Log: os.Stderr,
+			Out: out, Boards: boards, JQL: jqls, Pages: pages, Bookmarks: !noBookmarks, Since: since, Only: only, Log: os.Stderr,
 			ActiveSprints: !noSprint, MyIssues: !noMine,
 		})
 		return err
@@ -101,7 +112,8 @@ ATLASSIAN_MIRROR, else ~/.local/share/atlassian-cli/mirror). Each issue,
 page, board and space in the archive replaces its old copy as a whole
 (attachments included); everything else is kept. --prune (full snapshots
 only) removes the issues and pages the snapshot no longer has, listing them
-first. The local/ subdirectory, for your own additions in the same layout,
+first; an archive of one side (export --only) prunes only that side, and
+leaves the other side's URL and freshness as they were. The local/ subdirectory, for your own additions in the same layout,
 is never touched. The archive's bookmarks are added to your bookmarks;
 yours are never removed.`,
 	Args: cobra.ExactArgs(1),
@@ -120,9 +132,9 @@ yours are never removed.`,
 		if isJSONOutput(cmd) {
 			return writeJSONOut(res)
 		}
-		kind := "full snapshot"
+		kind := strings.Join(res.Contents, "+") + " full snapshot"
 		if !res.Full {
-			kind = "changes since " + res.Manifest.Since
+			kind = strings.Join(res.Contents, "+") + " changes since " + res.Manifest.Since
 		}
 		fmt.Printf("imported %s exported %s into %s\n", kind, res.Manifest.ExportedAt, res.Dir)
 		fmt.Printf("  %d new, %d updated, %d kept (not in the archive), %d pruned; %d bookmark(s) added\n",
@@ -153,6 +165,9 @@ type mirrorStatus struct {
 	Pages         int    `json:"pages"`
 	Attachments   int    `json:"attachments"`
 	Bytes         int64  `json:"bytes"`
+	// Per side; nil when that side was never imported.
+	Jira       *mirror.SideState `json:"jira"`
+	Confluence *mirror.SideState `json:"confluence"`
 }
 
 var mirrorStatusCmd = &cobra.Command{
@@ -168,6 +183,7 @@ var mirrorStatusCmd = &cobra.Command{
 			st.ExportedAt, st.LastFullAt, st.ImportedAt, st.Since = m.ExportedAt, m.LastFullAt, m.ImportedAt, m.Since
 			st.JiraURL, st.ConfluenceURL = m.JiraURL, m.ConfluenceURL
 			st.Issues, st.Pages, st.Attachments, st.Bytes = m.Issues, m.Pages, m.Attachments, m.Bytes
+			st.Jira, st.Confluence = m.Side(mirror.SideJira), m.Side(mirror.SideConfluence)
 		}
 		if isJSONOutput(cmd) {
 			return writeJSONOut(st)
@@ -178,6 +194,20 @@ var mirrorStatusCmd = &cobra.Command{
 		}
 		fmt.Printf("mirror:       %s (%s)\n", st.Dir, map[bool]string{true: "in use", false: "not in use: set ATLASSIAN_MIRROR or unset the *_URL variables"}[st.Active])
 		fmt.Printf("exported at:  %s (last full snapshot %s)\n", st.ExportedAt, st.LastFullAt)
+		for _, side := range []struct {
+			name string
+			st   *mirror.SideState
+		}{{"jira", st.Jira}, {"confluence", st.Confluence}} {
+			if side.st == nil {
+				fmt.Printf("%-13s never imported\n", side.name+":")
+				continue
+			}
+			last := side.st.LastFullAt
+			if last == "" {
+				last = "none"
+			}
+			fmt.Printf("%-13s exported %s (last full snapshot %s)\n", side.name+":", side.st.ExportedAt, last)
+		}
 		fmt.Printf("imported at:  %s\n", st.ImportedAt)
 		fmt.Printf("from:         %s %s\n", st.JiraURL, st.ConfluenceURL)
 		fmt.Printf("contents:     %d issues, %d pages, %d attachments, %s bytes\n", st.Issues, st.Pages, st.Attachments, strconv.FormatInt(st.Bytes, 10))
@@ -223,6 +253,7 @@ func init() {
 	f.Bool("no-active-sprint", false, "Do not export the issues of the active sprints (of the boards, else of JIRA_DEFAULT_PROJECT)")
 	f.Bool("no-my-issues", false, "Do not export your issues that are unresolved or resolved as anything but Done/Fixed")
 	f.String("since", "", "Only issues and pages changed since: RFC 3339, 2006-01-02 or a period (-7d, 12h)")
+	f.String("only", "", "Export only one side: jira or confluence (default: both)")
 
 	for _, c := range []*cobra.Command{mirrorImportCmd, mirrorStatusCmd, mirrorServeCmd} {
 		c.Flags().String("dir", "", "Mirror directory (default ATLASSIAN_MIRROR or ~/.local/share/atlassian-cli/mirror)")

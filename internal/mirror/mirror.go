@@ -62,6 +62,158 @@ type Manifest struct {
 	Attachments   int      `json:"attachments"`
 	Bytes         int64    `json:"bytes"`
 	Settings      Settings `json:"settings"`
+	// Contents names the sides (SideJira, SideConfluence) an archive covers;
+	// empty means both (archives made before the sides could be split). In
+	// a mirror directory it is the union of everything imported.
+	Contents []string `json:"contents,omitempty"`
+	// Per-side freshness in a mirror directory (import fills them in; Jira
+	// changes often, Confluence rarely, so they are exported separately).
+	Jira       *SideState `json:"jira,omitempty"`
+	Confluence *SideState `json:"confluence,omitempty"`
+}
+
+// The sides of a mirror, exported together or separately (export --only).
+const (
+	SideJira       = "jira"
+	SideConfluence = "confluence"
+)
+
+// Sides lists every side, in a fixed order.
+var Sides = []string{SideJira, SideConfluence}
+
+// SideState is how current one side of a mirror is.
+type SideState struct {
+	ExportedAt string `json:"exported_at"`
+	LastFullAt string `json:"last_full_at,omitempty"`
+	Since      string `json:"since,omitempty"`
+}
+
+// Covers reports whether the manifest's archive or mirror covers side.
+func (m *Manifest) Covers(side string) bool {
+	if len(m.Contents) == 0 {
+		return true
+	}
+	for _, s := range m.Contents {
+		if s == side {
+			return true
+		}
+	}
+	return false
+}
+
+// Side returns the state of one side (nil when it was never imported). A
+// mirror from before per-side state has both sides as of its manifest.
+func (m *Manifest) Side(side string) *SideState {
+	if m.Jira == nil && m.Confluence == nil {
+		if m.ExportedAt == "" || !m.Covers(side) {
+			return nil
+		}
+		return &SideState{ExportedAt: m.ExportedAt, LastFullAt: m.LastFullAt, Since: m.Since}
+	}
+	if side == SideJira {
+		return m.Jira
+	}
+	return m.Confluence
+}
+
+func (m *Manifest) setSide(side string, st *SideState) {
+	if side == SideJira {
+		m.Jira = st
+	} else {
+		m.Confluence = st
+	}
+}
+
+// MergeImport returns the manifest of a mirror directory (old, nil when
+// empty) after importing an archive with manifest in: only the sides the
+// archive covers change, so a Jira-only archive keeps the Confluence URL,
+// freshness and pages (and vice versa). The top-level ExportedAt is the
+// newest side's, LastFullAt the oldest side's last full snapshot (empty
+// while a side has none).
+func MergeImport(old, in *Manifest, importedAt string) *Manifest {
+	m := Manifest{}
+	if old != nil {
+		m = *old
+		m.Jira, m.Confluence = old.Side(SideJira), old.Side(SideConfluence)
+	}
+	m.Version, m.ImportedAt, m.Since = in.Version, importedAt, in.Since
+	full := in.Since == ""
+	contents := map[string]bool{}
+	if old != nil {
+		for _, s := range Sides {
+			if old.Covers(s) {
+				contents[s] = true
+			}
+		}
+	}
+	for _, s := range Sides {
+		if !in.Covers(s) {
+			continue
+		}
+		contents[s] = true
+		st := SideState{}
+		if prev := m.Side(s); prev != nil {
+			st = *prev
+		}
+		if in.ExportedAt > st.ExportedAt {
+			st.ExportedAt = in.ExportedAt
+		}
+		st.Since = in.Since
+		if full && in.ExportedAt > st.LastFullAt {
+			st.LastFullAt = in.ExportedAt
+		}
+		m.setSide(s, &st)
+		switch s {
+		case SideJira:
+			if in.JiraURL != "" {
+				m.JiraURL, m.Cloud = in.JiraURL, in.Cloud
+			}
+			m.Settings = in.Settings
+			if full || old == nil {
+				m.Boards = in.Boards
+			} else {
+				m.Boards = unionInts(m.Boards, in.Boards)
+			}
+		case SideConfluence:
+			if in.ConfluenceURL != "" {
+				m.ConfluenceURL = in.ConfluenceURL
+			}
+		}
+	}
+	m.Contents = nil
+	for _, s := range Sides {
+		if contents[s] {
+			m.Contents = append(m.Contents, s)
+		}
+	}
+	m.ExportedAt, m.LastFullAt = "", ""
+	first := true
+	for _, s := range m.Contents {
+		st := m.Side(s)
+		if st == nil {
+			continue
+		}
+		if st.ExportedAt > m.ExportedAt {
+			m.ExportedAt = st.ExportedAt
+		}
+		if first || st.LastFullAt < m.LastFullAt {
+			m.LastFullAt = st.LastFullAt
+		}
+		first = false
+	}
+	return &m
+}
+
+func unionInts(a, b []int) []int {
+	seen := map[int]bool{}
+	var out []int
+	for _, v := range append(append([]int{}, a...), b...) {
+		if !seen[v] {
+			seen[v] = true
+			out = append(out, v)
+		}
+	}
+	return out
 }
 
 // Settings are the exporter's JIRA_* explorer settings, used on the mirror

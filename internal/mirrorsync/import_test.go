@@ -137,3 +137,81 @@ func TestExtractRejectsEscapes(t *testing.T) {
 		t.Fatal("filepath.IsLocal behaves unexpectedly")
 	}
 }
+
+// sideArchive builds an archive covering the given sides, with issues and
+// pages (by key / id).
+func sideArchive(t *testing.T, m mirror.Manifest, issues, pages []string) string {
+	t.Helper()
+	dir := t.TempDir()
+	m.Version = 1
+	data, _ := json.Marshal(m)
+	put(t, filepath.Join(dir, "mirror.json"), string(data))
+	for _, key := range issues {
+		put(t, filepath.Join(dir, "jira", "issues", key, "issue.json"), `{"key":"`+key+`","fields":{}}`)
+	}
+	for _, id := range pages {
+		put(t, filepath.Join(dir, "confluence", "pages", id, "page.json"), `{"id":"`+id+`"}`)
+	}
+	out := filepath.Join(t.TempDir(), "m.tar.gz")
+	if err := writeTarGz(dir, out); err != nil {
+		t.Fatal(err)
+	}
+	return out
+}
+
+func TestImportOneSideKeepsTheOther(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "mirror")
+	const jiraURL, confURL = "https://jira.example", "https://wiki.example"
+	both := mirror.Manifest{ExportedAt: "2026-10-01T00:00:00Z", JiraURL: jiraURL, ConfluenceURL: confURL, Boards: []int{7}}
+	if _, err := Import(sideArchive(t, both, []string{"A-1", "A-2"}, []string{"10", "11"}), dir, ImportOptions{}); err != nil {
+		t.Fatal(err)
+	}
+
+	// A full Jira-only snapshot without A-2, pruned: the pages and the
+	// Confluence URL stay; only Jira's freshness moves.
+	jiraOnly := mirror.Manifest{ExportedAt: "2026-10-08T00:00:00Z", JiraURL: jiraURL, Boards: []int{8}, Contents: []string{mirror.SideJira}}
+	res, err := Import(sideArchive(t, jiraOnly, []string{"A-1"}, nil), dir, ImportOptions{Prune: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Equal(res.Pruned, []string{"jira/issues/A-2"}) || !slices.Equal(res.Contents, []string{mirror.SideJira}) {
+		t.Fatalf("jira-only prune: %+v", res)
+	}
+	m, _ := mirror.ReadManifest(dir)
+	if m.ConfluenceURL != confURL || m.JiraURL != jiraURL || m.Pages != 2 || m.Issues != 1 {
+		t.Fatalf("jira-only import lost the Confluence side: %+v", m)
+	}
+	if m.Jira.LastFullAt != "2026-10-08T00:00:00Z" || m.Confluence.ExportedAt != "2026-10-01T00:00:00Z" ||
+		m.ExportedAt != "2026-10-08T00:00:00Z" || m.LastFullAt != "2026-10-01T00:00:00Z" {
+		t.Fatalf("freshness: top %s/%s jira %+v confluence %+v", m.ExportedAt, m.LastFullAt, *m.Jira, *m.Confluence)
+	}
+	if !slices.Equal(m.Contents, mirror.Sides) || !slices.Equal(m.Boards, []int{8}) {
+		t.Fatalf("contents %v boards %v", m.Contents, m.Boards)
+	}
+
+	// A Confluence delta: page 12 added, Jira untouched.
+	conf := mirror.Manifest{ExportedAt: "2026-10-09T00:00:00Z", Since: "2026-10-01T00:00:00Z", ConfluenceURL: confURL, Contents: []string{mirror.SideConfluence}}
+	if _, err := Import(sideArchive(t, conf, nil, []string{"12"}), dir, ImportOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	m, _ = mirror.ReadManifest(dir)
+	if m.Pages != 3 || m.Issues != 1 || m.Jira.ExportedAt != "2026-10-08T00:00:00Z" ||
+		m.Confluence.ExportedAt != "2026-10-09T00:00:00Z" || m.Confluence.LastFullAt != "2026-10-01T00:00:00Z" ||
+		m.Confluence.Since != "2026-10-01T00:00:00Z" || m.Jira.Since != "" || !slices.Equal(m.Boards, []int{8}) {
+		t.Fatalf("confluence delta: %+v jira %+v confluence %+v", m, *m.Jira, *m.Confluence)
+	}
+}
+
+func TestSideStateOfLegacyMirror(t *testing.T) {
+	old := &mirror.Manifest{Version: 1, ExportedAt: "2026-10-05T00:00:00Z", LastFullAt: "2026-10-01T00:00:00Z", Since: "2026-10-01T00:00:00Z"}
+	for _, side := range mirror.Sides {
+		if st := old.Side(side); st == nil || st.LastFullAt != "2026-10-01T00:00:00Z" || st.ExportedAt != "2026-10-05T00:00:00Z" {
+			t.Fatalf("%s of a legacy manifest: %+v", side, st)
+		}
+	}
+	in := &mirror.Manifest{Version: 1, ExportedAt: "2026-10-06T00:00:00Z", Contents: []string{mirror.SideConfluence}}
+	m := mirror.MergeImport(old, in, "now")
+	if m.Jira.LastFullAt != "2026-10-01T00:00:00Z" || m.Confluence.LastFullAt != "2026-10-06T00:00:00Z" || m.LastFullAt != "2026-10-01T00:00:00Z" {
+		t.Fatalf("merged legacy: jira %+v confluence %+v", *m.Jira, *m.Confluence)
+	}
+}

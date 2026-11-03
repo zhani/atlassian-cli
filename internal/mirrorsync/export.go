@@ -42,7 +42,11 @@ type ExportOptions struct {
 	// are unresolved or resolved as anything but Done/Fixed.
 	MyIssues bool
 	Since    string // only issues/pages changed since (empty: full snapshot)
-	Log      io.Writer
+	// Only limits the archive to one side (mirror.SideJira or
+	// mirror.SideConfluence); empty exports every configured side. Import
+	// then leaves the other side of the mirror as it is.
+	Only string
+	Log  io.Writer
 }
 
 // Exporter talks to the live servers. Jira or Confluence may be nil when
@@ -87,6 +91,28 @@ func (e *Exporter) Export(ctx context.Context, opts ExportOptions) (*mirror.Mani
 		}
 		e.since = t
 	}
+	doJira, doConf := e.Jira != nil, e.Confluence != nil
+	switch opts.Only {
+	case "":
+	case mirror.SideJira:
+		if e.Jira == nil {
+			return nil, fmt.Errorf("--only jira needs Jira (set JIRA_URL and a token)")
+		}
+		if len(opts.Pages) > 0 {
+			return nil, fmt.Errorf("--page exports Confluence; it can't go with --only jira")
+		}
+		doConf = false
+	case mirror.SideConfluence:
+		if e.Confluence == nil {
+			return nil, fmt.Errorf("--only confluence needs Confluence (set CONFLUENCE_URL and a token)")
+		}
+		if len(opts.Boards) > 0 || len(opts.JQL) > 0 {
+			return nil, fmt.Errorf("--board/--jql export Jira; they can't go with --only confluence")
+		}
+		doJira = false
+	default:
+		return nil, fmt.Errorf("--only: %q is neither %s nor %s", opts.Only, mirror.SideJira, mirror.SideConfluence)
+	}
 	out, err := filepath.Abs(opts.Out)
 	if err != nil {
 		return nil, err
@@ -118,7 +144,15 @@ func (e *Exporter) Export(ctx context.Context, opts ExportOptions) (*mirror.Mani
 		m.Since = e.since.UTC().Format(time.RFC3339)
 	}
 
-	if e.Jira != nil {
+	if doJira {
+		m.Contents = append(m.Contents, mirror.SideJira)
+	}
+	if doConf {
+		m.Contents = append(m.Contents, mirror.SideConfluence)
+		m.ConfluenceURL = e.Confluence.BaseURL()
+	}
+
+	if doJira {
 		m.JiraURL, m.Cloud = e.Jira.BaseURL(), e.Jira.IsCloud()
 		m.Boards = opts.Boards
 		if len(m.Boards) == 0 && e.JiraCfg.DefaultBoard != "" {
@@ -134,7 +168,7 @@ func (e *Exporter) Export(ctx context.Context, opts ExportOptions) (*mirror.Mani
 		if err := e.exportJira(ctx, m.Boards, marks); err != nil {
 			return nil, err
 		}
-	} else if len(opts.Boards) > 0 || len(opts.JQL) > 0 {
+	} else if e.Jira == nil && (len(opts.Boards) > 0 || len(opts.JQL) > 0) {
 		return nil, fmt.Errorf("--board/--jql need Jira (set JIRA_URL and a token)")
 	}
 
@@ -144,14 +178,13 @@ func (e *Exporter) Export(ctx context.Context, opts ExportOptions) (*mirror.Mani
 			pages = append(pages, b.Key)
 		}
 	}
-	if len(pages) > 0 {
+	if len(pages) > 0 && opts.Only != mirror.SideJira {
 		if e.Confluence == nil {
 			if len(opts.Pages) > 0 {
 				return nil, fmt.Errorf("--page needs Confluence (set CONFLUENCE_URL and a token)")
 			}
 			e.warn("Confluence is not configured: skipping %d bookmarked page(s)", len(pages))
 		} else {
-			m.ConfluenceURL = e.Confluence.BaseURL()
 			for _, id := range pages {
 				if err := e.exportPageTree(ctx, id); err != nil {
 					e.warn("page %s: %v", id, err)
@@ -176,9 +209,9 @@ func (e *Exporter) Export(ctx context.Context, opts ExportOptions) (*mirror.Mani
 	if err := writeTarGz(e.stage, out); err != nil {
 		return nil, err
 	}
-	kind := "full snapshot"
+	kind := strings.Join(m.Contents, "+") + " full snapshot"
 	if m.Since != "" {
-		kind = "changes since " + m.Since
+		kind = strings.Join(m.Contents, "+") + " changes since " + m.Since
 	}
 	e.logf("exported %d issues, %d pages, %d attachments (%s, %s) → %s", m.Issues, m.Pages, m.Attachments,
 		humanBytes(m.Bytes), kind, out)
