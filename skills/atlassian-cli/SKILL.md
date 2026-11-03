@@ -15,7 +15,9 @@ Check them with `atlassian-cli jira myself`.
 On a machine without access to Jira/Confluence, the same commands may read
 an offline mirror (made elsewhere with `mirror export`, imported with
 `mirror import`). Check with `atlassian-cli mirror status -o json`: when it
-shows an `exported_at`, the data is a snapshot as of that time and
+shows an `exported_at`, the data is a snapshot as of that time (`jira` /
+`confluence` give each side's own `exported_at`, as they are refreshed
+separately) and
 everything is read-only — find issues, descriptions, comments, attachments
 and pages as usual (`jira issue get KEY -o markdown`, `jira issue search JQL
 -o json`, `jira issue attachment download KEY FILE`, `jira issue evidence KEY --dir

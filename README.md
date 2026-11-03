@@ -507,7 +507,16 @@ atlassian-cli mirror export --out mirror.tar.gz                 # board JIRA_DEF
 atlassian-cli mirror export --out mirror.tar.gz --board 42 --board 43 \
     --jql "project = PROJ AND updated >= -30d" --page 123456     # more boards, queries, page trees
 atlassian-cli mirror export --out delta.tar.gz --since -7d       # only issues/pages changed since
+atlassian-cli mirror export --out jira.tar.gz --only jira --since -2d        # one side only
+atlassian-cli mirror export --out wiki.tar.gz --only confluence --since -14d
 ```
+
+Jira changes often and Confluence rarely, so `--only jira|confluence` lets
+each side have its own schedule (bookmarks of that kind only). Both still go
+into the **same** mirror on the offline machine, so links between issues and
+pages keep resolving: importing one side leaves the other as it is
+(URL, freshness, items), `--prune` prunes only the side the archive covers,
+and `mirror status` shows each side's last export and full snapshot.
 
 What goes in: the issues of each board's filter (and its sprints), of each
 `--jql` query and of every bookmark (issues, queries, features with their

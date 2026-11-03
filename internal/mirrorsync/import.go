@@ -136,6 +136,7 @@ type ImportOptions struct {
 type ImportResult struct {
 	Dir        string           `json:"dir"`
 	Full       bool             `json:"full"`
+	Contents   []string         `json:"contents"` // the sides the archive covers
 	ExportedAt string           `json:"exported_at"`
 	New        int              `json:"new"`
 	Updated    int              `json:"updated"`
@@ -146,13 +147,17 @@ type ImportResult struct {
 }
 
 // unitGlobs are the items an import replaces as a whole (relative to the
-// mirror root). Everything else is shared metadata merged separately.
-var unitGlobs = []string{"jira/issues/*", "jira/boards/*.json", "confluence/pages/*", "confluence/spaces/*.json"}
+// mirror root), per side. Everything else is shared metadata merged separately.
+var unitGlobs = map[string][]string{
+	mirror.SideJira:       {"jira/issues/*", "jira/boards/*.json"},
+	mirror.SideConfluence: {"confluence/pages/*", "confluence/spaces/*.json"},
+}
 
 // Import upserts an archive into dir: every issue, page, board and space in
 // it replaces its old copy entirely; everything else is kept, and local/ is
 // never touched. With Prune (full snapshots only) items missing from the
-// archive are removed.
+// archive are removed, only on the sides the archive covers (a Jira-only
+// snapshot never prunes Confluence pages).
 func Import(archive, dir string, opts ImportOptions) (*ImportResult, error) {
 	logf := func(format string, args ...any) {
 		if opts.Log != nil {
@@ -193,11 +198,16 @@ func Import(archive, dir string, opts ImportOptions) (*ImportResult, error) {
 	old, _ := mirror.ReadManifest(dir)
 
 	res := &ImportResult{Dir: dir, Full: full, ExportedAt: in.ExportedAt, Pruned: []string{}}
+	for _, side := range mirror.Sides {
+		if in.Covers(side) {
+			res.Contents = append(res.Contents, side)
+		}
+	}
 	trash := filepath.Join(dir, ".trash-"+fmt.Sprint(time.Now().UnixNano()))
 	defer os.RemoveAll(trash)
 
 	incoming := map[string]bool{}
-	for _, g := range unitGlobs {
+	for _, g := range allGlobs() {
 		matches, _ := filepath.Glob(filepath.Join(stage, filepath.FromSlash(g)))
 		for _, src := range matches {
 			rel, _ := filepath.Rel(stage, src)
@@ -230,7 +240,13 @@ func Import(archive, dir string, opts ImportOptions) (*ImportResult, error) {
 	}
 
 	var stale []string
-	for _, g := range unitGlobs {
+	var covered []string
+	for _, side := range mirror.Sides {
+		if in.Covers(side) {
+			covered = append(covered, unitGlobs[side]...)
+		}
+	}
+	for _, g := range covered {
 		matches, _ := filepath.Glob(filepath.Join(dir, filepath.FromSlash(g)))
 		for _, p := range matches {
 			rel, _ := filepath.Rel(dir, p)
@@ -276,20 +292,7 @@ func Import(archive, dir string, opts ImportOptions) (*ImportResult, error) {
 		}
 	}
 
-	m := *in
-	m.ImportedAt = time.Now().UTC().Format(time.RFC3339)
-	if old != nil {
-		if old.ExportedAt > m.ExportedAt {
-			m.ExportedAt = old.ExportedAt
-		}
-		m.LastFullAt = old.LastFullAt
-		if !full {
-			m.Boards = unionInts(old.Boards, in.Boards)
-		}
-	}
-	if full && (m.LastFullAt == "" || in.ExportedAt > m.LastFullAt) {
-		m.LastFullAt = in.ExportedAt
-	}
+	m := *mirror.MergeImport(old, in, time.Now().UTC().Format(time.RFC3339))
 	countMirror(dir, &m)
 	if err := writeManifestAtomic(dir, &m); err != nil {
 		return nil, err
@@ -298,14 +301,10 @@ func Import(archive, dir string, opts ImportOptions) (*ImportResult, error) {
 	return res, nil
 }
 
-func unionInts(a, b []int) []int {
-	seen := map[int]bool{}
-	var out []int
-	for _, v := range append(append([]int{}, a...), b...) {
-		if !seen[v] {
-			seen[v] = true
-			out = append(out, v)
-		}
+func allGlobs() []string {
+	var out []string
+	for _, side := range mirror.Sides {
+		out = append(out, unitGlobs[side]...)
 	}
 	return out
 }

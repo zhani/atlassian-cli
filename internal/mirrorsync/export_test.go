@@ -7,12 +7,15 @@ import (
 	"net/http/httptest"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"sort"
 	"strings"
 	"testing"
 
 	"github.com/zhani/atlassian-cli/internal/config"
+	"github.com/zhani/atlassian-cli/internal/confluence"
 	"github.com/zhani/atlassian-cli/internal/jira"
+	"github.com/zhani/atlassian-cli/internal/mirror"
 	"github.com/zhani/atlassian-cli/internal/xray"
 )
 
@@ -199,5 +202,60 @@ func TestCoverageKeys(t *testing.T) {
 		if k := xray.CoverageTests(other); len(k) != 0 {
 			t.Errorf("%v: got %v, want nothing", other, k)
 		}
+	}
+}
+
+func TestExportOnlyOneSide(t *testing.T) {
+	jsrv, _ := fakeJira(t, `[]`, `[]`)
+	confHits := 0
+	csrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		confHits++
+		http.NotFound(w, nil)
+	}))
+	t.Cleanup(csrv.Close)
+	jcfg := &config.AtlassianConfig{URL: jsrv.URL, Token: "x"}
+	ccfg := &config.AtlassianConfig{URL: csrv.URL, Token: "x"}
+	newExporter := func() *Exporter {
+		return &Exporter{Jira: jira.NewClient(jcfg), JiraCfg: jcfg, Confluence: confluence.NewClient(ccfg), ConfCfg: ccfg}
+	}
+	out := func() string { return filepath.Join(t.TempDir(), "m.tar.gz") }
+
+	m, err := newExporter().Export(context.Background(), ExportOptions{Out: out(), Log: io.Discard, Boards: []int{7}, Only: mirror.SideJira})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Equal(m.Contents, []string{mirror.SideJira}) || m.ConfluenceURL != "" || m.JiraURL == "" || confHits != 0 {
+		t.Fatalf("--only jira: contents %v, confluence url %q, %d Confluence request(s)", m.Contents, m.ConfluenceURL, confHits)
+	}
+
+	m, err = newExporter().Export(context.Background(), ExportOptions{Out: out(), Log: io.Discard, Only: mirror.SideConfluence})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Equal(m.Contents, []string{mirror.SideConfluence}) || m.JiraURL != "" || m.ConfluenceURL == "" || m.Issues != 0 {
+		t.Fatalf("--only confluence: %+v", m)
+	}
+
+	m, err = newExporter().Export(context.Background(), ExportOptions{Out: out(), Log: io.Discard, Boards: []int{7}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Equal(m.Contents, mirror.Sides) {
+		t.Fatalf("default contents = %v, want both", m.Contents)
+	}
+
+	for _, bad := range []ExportOptions{
+		{Only: mirror.SideConfluence, Boards: []int{7}},
+		{Only: mirror.SideJira, Pages: []string{"1"}},
+		{Only: "wiki"},
+	} {
+		bad.Out, bad.Log = out(), io.Discard
+		if _, err := newExporter().Export(context.Background(), bad); err == nil {
+			t.Errorf("%+v: want an error", bad)
+		}
+	}
+	if _, err := (&Exporter{Jira: jira.NewClient(jcfg), JiraCfg: jcfg}).Export(context.Background(),
+		ExportOptions{Out: out(), Log: io.Discard, Only: mirror.SideConfluence}); err == nil {
+		t.Error("--only confluence without Confluence configured: want an error")
 	}
 }
