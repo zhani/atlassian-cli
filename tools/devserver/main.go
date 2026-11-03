@@ -1,4 +1,4 @@
-// Command fakejira is a small stateful stand-in for the Jira Server/DC and
+// Command devserver is a small stateful stand-in for the Jira Server/DC and
 // Cloud REST APIs, for trying out atlassian-cli (especially the TUI) without
 // a real instance. It also serves a minimal in-memory Confluence (see
 // confluence.go) seeded with demo pages.
@@ -15,7 +15,7 @@
 //
 // Usage:
 //
-//	go run ./tools/fakejira -data ./issues
+//	go run ./tools/devserver -data ./issues
 //	JIRA_URL=http://127.0.0.1:18080 JIRA_PERSONAL_TOKEN=x atlassian-cli jira issue search 'project = PROJ'
 //
 // Supported JQL is deliberately minimal: clauses joined with AND, each of the
@@ -238,7 +238,7 @@ func (s *store) attachmentJSON(a attachment) map[string]any {
 		"size":     a.Size,
 		"mimeType": a.MimeType,
 		"created":  "2026-01-01T00:00:00.000+0000",
-		"author":   map[string]any{"displayName": "fakejira"},
+		"author":   map[string]any{"displayName": "devserver"},
 		"content":  s.baseURL + "/secure/attachment/" + a.ID + "/" + a.Filename,
 	}
 }

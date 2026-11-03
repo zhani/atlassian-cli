@@ -6,6 +6,9 @@
 - `mirror export --only jira|confluence` exports one side, so Jira (changes often) and Confluence (changes rarely) can be refreshed on their own schedules into the same mirror, where links between them keep working. Importing one side leaves the other side's items, URL and freshness alone, and `--prune` prunes only that side.
 - `mirror status` shows each side's last export and last full snapshot (`jira` / `confluence` in `-o json`); the top-level `last_full_at` is now the older side's.
 
+### Development
+- `tools/fakejira` is now `tools/devserver` (it serves Confluence too): `go run ./tools/devserver -data DIR`.
+
 ## [v0.4.3](https://github.com/zhani/atlassian-cli/commits/v0.4.3) - 2026-11-02
 
 ### Interactive browsers

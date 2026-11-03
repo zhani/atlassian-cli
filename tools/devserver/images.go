@@ -131,7 +131,7 @@ func encodePNG(img image.Image) []byte {
 // attachDemoImages writes the demo images to a temporary directory and
 // attaches them to a page; it returns the download path of each by name.
 func (s *store) attachDemoImages(pageID string) map[string]string {
-	dir, err := os.MkdirTemp("", "fakejira-images-")
+	dir, err := os.MkdirTemp("", "devserver-images-")
 	if err != nil {
 		log.Fatal(err)
 	}
