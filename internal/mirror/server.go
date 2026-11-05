@@ -35,6 +35,7 @@ type Server struct {
 	links    json.RawMessage
 	boards   []boardData
 	jiraAtt  map[string]string // attachment ID -> file
+	remote   map[string]string // issue key -> remotelinks.json
 
 	pages     map[string]map[string]any
 	pageOrder []string
@@ -66,7 +67,7 @@ func Load(dir string) (*Server, error) {
 	s := &Server{
 		Dir: dir, Manifest: *m,
 		issues: map[string]map[string]any{}, issueDir: map[string]string{},
-		names: map[string]string{}, byName: map[string][]string{}, jiraAtt: map[string]string{},
+		names: map[string]string{}, byName: map[string][]string{}, jiraAtt: map[string]string{}, remote: map[string]string{},
 		pages: map[string]map[string]any{}, pageAtts: map[string][]map[string]any{}, pageDir: map[string]string{},
 		confFiles: map[string]string{}, urlFiles: map[string]string{}, xrayRuns: map[string]string{}, spaces: map[string]map[string]any{},
 		jiraBase: JiraBase, confBase: ConfluenceBase, now: time.Now,
@@ -132,6 +133,11 @@ func (s *Server) loadRoot(root string) error {
 		}
 		s.issues[key] = is
 		s.issueDir[key] = d
+		if f := filepath.Join(d, "remotelinks.json"); fileExists(f) {
+			s.remote[key] = f
+		} else {
+			delete(s.remote, key) // local/ copy without remote links
+		}
 		if n, ok := is["names"].(map[string]any); ok {
 			for id, v := range n {
 				if name, ok := v.(string); ok && s.names[id] == "" {
@@ -348,7 +354,7 @@ func (s *Server) routes() {
 	j.HandleFunc("GET /rest/api/2/issue/{key}", s.getIssue)
 	j.HandleFunc("GET /rest/api/2/issue/{key}/comment", s.getComments)
 	j.HandleFunc("GET /rest/api/2/issue/{key}/transitions", s.readOnly)
-	j.HandleFunc("GET /rest/api/2/issue/{key}/remotelink", func(w http.ResponseWriter, _ *http.Request) { s.writeJSON(w, []any{}) })
+	j.HandleFunc("GET /rest/api/2/issue/{key}/remotelink", s.getRemoteLinks)
 	j.HandleFunc("GET /rest/api/2/attachment/{id}", s.getJiraAttachment)
 	j.HandleFunc("GET /rest/api/2/field", s.getFields)
 	j.HandleFunc("GET /rest/raven/1.0/api/testrun/{id}", s.getXrayRun)
@@ -532,6 +538,26 @@ func (s *Server) getIssue(w http.ResponseWriter, r *http.Request) {
 	}
 	q := r.URL.Query()
 	s.writeJSON(w, s.issueView(is, q.Get("fields"), q.Get("expand")))
+}
+
+// getRemoteLinks serves an issue's remote links (Confluence pages, web
+// links) as exported; none for issues exported without them.
+func (s *Server) getRemoteLinks(w http.ResponseWriter, r *http.Request) {
+	key := strings.ToUpper(r.PathValue("key"))
+	if _, ok := s.issues[key]; !ok {
+		notFound(w, "Issue "+key)
+		return
+	}
+	var links []any
+	if f := s.remote[key]; f != "" {
+		if err := readJSON(f, &links); err != nil {
+			log.Printf("mirror: %s: %v", f, err)
+		}
+	}
+	if links == nil {
+		links = []any{}
+	}
+	s.writeJSON(w, links)
 }
 
 func (s *Server) getComments(w http.ResponseWriter, r *http.Request) {
@@ -968,4 +994,9 @@ func (s *Server) ServeAt(base string) {
 // String is used by `mirror status`.
 func (s *Server) String() string {
 	return fmt.Sprintf("%d issues, %d pages", len(s.issues), len(s.pages))
+}
+
+func fileExists(path string) bool {
+	_, err := os.Stat(path)
+	return err == nil
 }

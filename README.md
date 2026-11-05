@@ -331,7 +331,7 @@ browser). Piped output is never interactive.
 | `c` / `ctrl+k` | Copy issue URL / key to the clipboard |
 | `ctrl+r` / `F5` | Refresh |
 | `i` | Detail view: show the issue's images full screen — Xray evidence step by step, step attachments, image attachments (`n`/`p` next/previous, `q` back). The detail view also draws them in place (kitty placeholders, or coloured blocks elsewhere), like the Confluence browser, with images in the description and an Attachments list |
-| `l` | Detail view: follow a link — pick from the parent, epic, linked issues, subtasks, Xray tests covering it and issues mentioned in its text; `enter` opens it, `esc` walks back to where you came from |
+| `l` | Detail view: follow a link — pick from the parent, epic, linked issues, subtasks, Xray tests covering it and issues mentioned in its text; `enter` opens it, `esc` walks back to where you came from. With Confluence configured the list also has the pages the issue links to (its "wiki page" remote links, page links in its description and comments): `enter` opens the page in the page browser, `q` there comes back |
 | `b` | Bookmark the issue (again: remove the bookmark) |
 | `B` | Bookmarks: pick a bookmarked issue, query, feature, epic or sprint to show here |
 | `S` | Bookmark the list's query |
@@ -417,6 +417,7 @@ page rendered on the right; child pages load when a page is expanded.
 | `ctrl+h` / `ctrl+l` | Focus the tree (left) / the page (right) |
 | `/` | Fuzzy-find pages (the whole space is loaded in the background): `↓`/`↑`, `ctrl+j`/`ctrl+k` or `ctrl+n`/`ctrl+p` move between matches, `enter` jumps to the page, `esc` goes back |
 | `i` | View the page's images full screen |
+| `L` | Jira issues on the page (Jira issue macros, links to issues; with Jira configured): `enter` opens one in the issue browser, `q` there comes back |
 | `b` | Bookmark the page (again: remove the bookmark) |
 | `B` | Bookmarks: jump to a bookmarked page |
 | `o` / `c` | Open the page in the browser / copy its URL |
@@ -527,7 +528,11 @@ unresolved or resolved as anything but Done/Fixed (`--no-my-issues` turns it
 off), the issues one step away from those (parent, subtasks, epic, every
 linked issue: "relates to", "is blocked by"…, and the tests in Xray's Test
 Coverage; not followed further), and each `--page` / bookmarked page with all its
-descendants. Issues keep their rendered descriptions, all comments and their
+descendants. Links between the two sides come along one step, so they open
+offline: the Confluence pages those issues link to (remote "wiki page" links,
+page links in any field: `viewpage.action?pageId=`, `/spaces/…/pages/N`,
+`/display/SPACE/Title`, tiny `/x/…` links) and the Jira issues those pages
+show (Jira issue macro) or link to — but nothing those bring in turn. Issues keep their rendered descriptions, all comments and their
 attachments, and Xray tests their latest test runs (step results, comments)
 with all evidence and step attachments; pages keep their attachments and the images they link on the
 same site. The bookmark file and the field names come along too.
@@ -544,7 +549,9 @@ Refresh by exporting and importing again. An import **upserts**: each issue,
 page, board and space in the archive replaces its old copy as a whole
 (attachments included), everything else is kept. Without `--since` an
 archive is a full snapshot, and `--prune` (full snapshots only) removes what
-it no longer has, listing it first. The archive's bookmarks are added to
+it no longer has, listing it first — except items that the mirror's other
+items still link to (an issue on a mirrored page, a page an issue links to),
+which a one-side snapshot doesn't carry. The archive's bookmarks are added to
 yours; yours are never removed. Put your own additions under `local/` in the
 mirror directory, in the same layout (`local/jira/issues/KEY/issue.json`, …):
 they are served on top of the mirror and never touched by an import.

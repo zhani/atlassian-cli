@@ -6,8 +6,6 @@ import (
 
 	"github.com/mattn/go-isatty"
 	"github.com/spf13/cobra"
-	"github.com/zhani/atlassian-cli/internal/bookmarks"
-	"github.com/zhani/atlassian-cli/internal/browser"
 	"github.com/zhani/atlassian-cli/internal/tui"
 )
 
@@ -26,10 +24,7 @@ right. Without a space key, all spaces are listed.`,
 		if err != nil {
 			return err
 		}
-		opts := tui.TreeOptions{Source: client, OpenURL: browser.Open, Copy: tui.CopyToClipboard}
-		if store, err := bookmarks.Open(); err == nil {
-			opts.Bookmarks = store
-		}
+		opts := pageTreeOptions(client)
 		if len(args) == 1 {
 			opts.Space = args[0]
 		}

@@ -17,6 +17,7 @@ import (
 	"github.com/zhani/atlassian-cli/internal/bookmarks"
 	"github.com/zhani/atlassian-cli/internal/jira"
 	"github.com/zhani/atlassian-cli/internal/termimg"
+	"github.com/zhani/atlassian-cli/internal/xref"
 )
 
 // Source is the subset of the Jira client the browser needs. *jira.Client
@@ -25,6 +26,12 @@ import (
 // runs (*jira.Client); others show tests without run results.
 type xraySource interface {
 	LoadXrayRuns(ctx context.Context, issue *jira.Issue) error
+}
+
+// remoteLinkSource is implemented by sources that can load an issue's
+// remote links (*jira.Client), where Jira keeps links to Confluence pages.
+type remoteLinkSource interface {
+	LoadRemoteLinks(ctx context.Context, issue *jira.Issue) error
 }
 
 type Source interface {
@@ -65,6 +72,13 @@ type Options struct {
 
 	// OpenDetail starts in the detail view of this issue.
 	OpenDetail string
+
+	// OpenPage opens a Confluence page the shown issue links to (picked
+	// with l) in the page browser, blocking until it is closed; nil leaves
+	// pages out of the link picker. PageBases are the Confluence base URLs
+	// page links start with.
+	OpenPage  func(ctx context.Context, ref xref.PageRef) error
+	PageBases []string
 }
 
 type mode int
@@ -271,6 +285,12 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case previewDoneMsg:
 		if msg.err != nil {
 			m.setStatus("Image preview: "+msg.err.Error(), true)
+		}
+		return m, nil
+
+	case crossDoneMsg:
+		if msg.err != nil {
+			m.setStatus("Can't open "+msg.what+": "+msg.err.Error(), true)
 		}
 		return m, nil
 
@@ -524,6 +544,9 @@ func (m model) loadIssue(issueKey string) tea.Cmd {
 		issue, err := src.GetIssueRendered(ctx, issueKey)
 		if xs, ok := src.(xraySource); ok && err == nil {
 			_ = xs.LoadXrayRuns(ctx, issue) // best effort: Xray test runs for Test Details
+		}
+		if rs, ok := src.(remoteLinkSource); ok && err == nil {
+			_ = rs.LoadRemoteLinks(ctx, issue) // best effort: Confluence pages for l
 		}
 		return issueLoadedMsg{key: issueKey, issue: issue, err: err}
 	}

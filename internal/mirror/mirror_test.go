@@ -15,6 +15,7 @@ import (
 	"github.com/zhani/atlassian-cli/internal/confluence"
 	"github.com/zhani/atlassian-cli/internal/jira"
 	"github.com/zhani/atlassian-cli/internal/mirror"
+	"github.com/zhani/atlassian-cli/internal/xref"
 )
 
 const origJira = "https://jira.example.com/jira"
@@ -113,12 +114,16 @@ func fixture(t *testing.T) string {
 			"body":    map[string]any{"storage": map[string]any{"value": body}}}
 	}
 	write(t, filepath.Join(dir, "confluence", "pages", "100", "page.json"), page("100", "Architecture", `<p>See <ac:image><ri:url ri:value="`+origConf+`/images/logo.png" /></ac:image></p>`, "1"))
-	write(t, filepath.Join(dir, "confluence", "pages", "101", "page.json"), page("101", "Login flow", "<p>The password check happens in AuthService.</p>", "1", "100"))
+	write(t, filepath.Join(dir, "confluence", "pages", "101", "page.json"), page("101", "Login flow",
+		`<p>The password check happens in AuthService (<a href="`+origJira+`/browse/PROJ-1">PROJ-1</a>).</p>`, "1", "100"))
 	write(t, filepath.Join(dir, "confluence", "pages", "100", "attachments.json"), []any{map[string]any{"id": "att1", "title": "diagram.png",
 		"_links": map[string]any{"download": "/download/attachments/100/diagram.png?version=1"}}})
 	write(t, filepath.Join(dir, "confluence", "pages", "100", "files", "att1"), "DIAGRAM")
 	write(t, filepath.Join(dir, "confluence", "pages", "100", "urls.json"), map[string]string{"/images/logo.png": "logo"})
 	write(t, filepath.Join(dir, "confluence", "pages", "100", "urls", "logo"), "LOGO")
+	write(t, filepath.Join(dir, "jira", "issues", "PROJ-1", "remotelinks.json"), []any{map[string]any{"id": 1,
+		"application": map[string]any{"type": "com.atlassian.confluence"}, "relationship": "Wiki Page",
+		"object": map[string]any{"url": origConf + "/pages/viewpage.action?pageId=101", "title": "Login flow"}}})
 	// A local addition overrides nothing but adds an issue.
 	write(t, filepath.Join(dir, "local", "jira", "issues", "MINE-1", "issue.json"), issue("MINE-1", "My notes", "Open", "Task", "", "", recent, nil))
 	return dir
@@ -259,6 +264,13 @@ func TestClientsThroughMirror(t *testing.T) {
 	if string(data) != "PNGBYTES" {
 		t.Fatalf("attachment = %q", data)
 	}
+	remote, err := jc.GetRemoteLinks(ctx, "PROJ-1")
+	if err != nil || len(remote) != 1 || remote[0].Object.URL != mirror.ConfluenceBase+"/pages/viewpage.action?pageId=101" {
+		t.Fatalf("remote links (URL rewritten to the mirror): %+v %v", remote, err)
+	}
+	if none, err := jc.GetRemoteLinks(ctx, "PROJ-2"); err != nil || len(none) != 0 {
+		t.Fatalf("issue without remote links: %+v %v", none, err)
+	}
 	comments, err := jc.ListComments(ctx, "PROJ-1")
 	if err != nil || len(comments) != 1 {
 		t.Fatalf("comments: %v %v", comments, err)
@@ -304,6 +316,18 @@ func TestClientsThroughMirror(t *testing.T) {
 		if string(data) != want {
 			t.Fatalf("%s = %q", path, data)
 		}
+	}
+	// Cross-links resolve against the mirror: the page's issue link and the
+	// issue's page link point at the mirror bases the clients use.
+	login, err := cc.GetPage(ctx, "101", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if refs := xref.IssueRefs(login.Body.Storage.Value, jc.BaseURL()); len(refs) != 1 || refs[0].Key != "PROJ-1" {
+		t.Fatalf("issue link on page 101: %+v in %s", refs, login.Body.Storage.Value)
+	}
+	if refs := xref.PageRefs(remote[0].Object.URL, cc.BaseURL()); len(refs) != 1 || refs[0].ID != "101" {
+		t.Fatalf("page link of PROJ-1: %+v", refs)
 	}
 	atts, err := cc.GetAttachments(ctx, "100")
 	if err != nil || len(atts) != 1 {

@@ -17,6 +17,7 @@ import (
 	"github.com/zhani/atlassian-cli/internal/confluence"
 	"github.com/zhani/atlassian-cli/internal/htmlconv"
 	"github.com/zhani/atlassian-cli/internal/termimg"
+	"github.com/zhani/atlassian-cli/internal/xref"
 )
 
 // PageSource is the subset of the Confluence client the page browser needs.
@@ -43,6 +44,12 @@ type TreeOptions struct {
 	// Bookmarks enables b (bookmark the page) and B (jump to a bookmarked
 	// page).
 	Bookmarks Bookmarker
+
+	// OpenIssue opens a Jira issue the shown page shows or links to (picked
+	// with L) in the issue browser, blocking until it is closed; nil
+	// disables L. IssueBases are the Jira base URLs issue links start with.
+	OpenIssue  func(ctx context.Context, key string) error
+	IssueBases []string
 }
 
 // treeLimit caps how many children are listed per node.
@@ -74,8 +81,9 @@ type (
 )
 
 var treeKeys = struct {
-	expand, collapse, focus, refresh, images key.Binding
+	expand, collapse, focus, refresh, images, issues key.Binding
 }{
+	issues:   key.NewBinding(key.WithKeys("L"), key.WithHelp("L", "linked issues")),
 	expand:   key.NewBinding(key.WithKeys("enter", "l", "right"), key.WithHelp("enter/l", "expand")),
 	collapse: key.NewBinding(key.WithKeys("h", "left", "backspace"), key.WithHelp("h", "collapse")),
 	focus:    key.NewBinding(key.WithKeys("tab", "w"), key.WithHelp("tab", "switch pane")),
@@ -112,6 +120,9 @@ type treeModel struct {
 
 	spaceLoaded  map[string]bool // spaces whose whole page tree is loaded
 	spaceLoading map[string]bool
+
+	issueLinks []xref.IssueRef // issue picker (L) entries; non-nil while it is open
+	linkCursor int
 
 	picker        *bookmarkModel // open bookmark picker (B)
 	pendingReveal string         // page to select once its space is loaded
@@ -343,6 +354,12 @@ func (m treeModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 
+	case crossDoneMsg:
+		if msg.err != nil {
+			m.setStatus("Can't open "+msg.what+": "+msg.err.Error(), true)
+		}
+		return m, nil
+
 	case tea.KeyMsg:
 		return m.handleKey(msg)
 	}
@@ -360,11 +377,17 @@ func (m treeModel) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	if m.filtering {
 		return m.handleFilterKey(msg)
 	}
+	if m.issueLinks != nil {
+		return m.handleIssueLinksKey(msg)
+	}
 	if key.Matches(msg, keys.quit) {
 		m.quitting = true
 		return m, tea.Quit
 	}
 	m.status = ""
+	if m.opts.OpenIssue != nil && key.Matches(msg, treeKeys.issues) {
+		return m.openIssueLinks()
+	}
 	if key.Matches(msg, keys.filter) {
 		return m, m.startFilter()
 	}
@@ -664,10 +687,13 @@ func (m treeModel) View() string {
 	}
 	tree := m.treeView()
 	contentStyle := styleSidebarBlurred
-	if m.focusContent {
+	if m.focusContent || m.issueLinks != nil {
 		contentStyle = styleSidebarFocused
 	}
 	content := contentStyle.Render(m.content.View())
+	if m.issueLinks != nil {
+		content = contentStyle.Render(m.issueLinksView())
+	}
 	return lipgloss.JoinVertical(lipgloss.Left, lipgloss.JoinHorizontal(lipgloss.Top, tree, content), m.footerView())
 }
 
@@ -756,15 +782,22 @@ func (m treeModel) helpKeys() helpKeys {
 		b := []key.Binding{filterKeys.next, filterKeys.prev, filterKeys.accept, filterKeys.cancel}
 		return helpKeys{short: b, full: [][]key.Binding{b}}
 	}
+	if m.issueLinks != nil {
+		b := []key.Binding{keys.up, keys.down, linkOpenKey, keys.back}
+		return helpKeys{short: b, full: [][]key.Binding{b}}
+	}
 	short := []key.Binding{treeKeys.expand, treeKeys.collapse, keys.filter, treeKeys.focus}
 	if m.opts.Bookmarks != nil {
 		short = append(short, bookmarkKeys.toggle, bookmarkKeys.picker)
+	}
+	if m.opts.OpenIssue != nil {
+		short = append(short, treeKeys.issues)
 	}
 	short = append(short, treeKeys.images, keys.open, keys.help, keys.quit)
 	return helpKeys{short: short, full: [][]key.Binding{
 		{keys.up, keys.down, keys.pageUp, keys.pageDown, keys.top, keys.bottom},
 		{treeKeys.expand, treeKeys.collapse, treeKeys.focus, paneKeys.left, paneKeys.right, treeKeys.refresh},
-		{treeKeys.images, bookmarkKeys.toggle, bookmarkKeys.picker},
+		{treeKeys.images, treeKeys.issues, bookmarkKeys.toggle, bookmarkKeys.picker},
 		{keys.filter, keys.open, keys.copyURL, keys.help, keys.quit},
 	}}
 }

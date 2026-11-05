@@ -26,6 +26,7 @@ import (
 	"github.com/zhani/atlassian-cli/internal/jira"
 	"github.com/zhani/atlassian-cli/internal/mirror"
 	"github.com/zhani/atlassian-cli/internal/xray"
+	"github.com/zhani/atlassian-cli/internal/xref"
 )
 
 // ExportOptions selects what to export.
@@ -64,8 +65,12 @@ type Exporter struct {
 	pageDone map[string]bool
 	attSeen  map[string]bool
 	names    map[string]string
-	warnings int
-	stats    struct{ issues, pages, attachments int }
+	// treePages are the pages exported from bookmarks and --page (with
+	// their descendants); the issues they reference are exported too.
+	treePages     []string
+	remoteLinkErr bool // a remote link fetch failed (warned once)
+	warnings      int
+	stats         struct{ issues, pages, attachments int }
 }
 
 func (e *Exporter) logf(format string, args ...any) {
@@ -91,6 +96,7 @@ func (e *Exporter) Export(ctx context.Context, opts ExportOptions) (*mirror.Mani
 		}
 		e.since = t
 	}
+	e.treePages = nil
 	doJira, doConf := e.Jira != nil, e.Confluence != nil
 	switch opts.Only {
 	case "":
@@ -149,11 +155,17 @@ func (e *Exporter) Export(ctx context.Context, opts ExportOptions) (*mirror.Mani
 	}
 	if doConf {
 		m.Contents = append(m.Contents, mirror.SideConfluence)
+	}
+	// Both URLs whenever known: cross-references carry the other side's
+	// items, and the mirror rewrites links by these URLs.
+	if e.Confluence != nil {
 		m.ConfluenceURL = e.Confluence.BaseURL()
+	}
+	if e.Jira != nil {
+		m.JiraURL, m.Cloud = e.Jira.BaseURL(), e.Jira.IsCloud()
 	}
 
 	if doJira {
-		m.JiraURL, m.Cloud = e.Jira.BaseURL(), e.Jira.IsCloud()
 		m.Boards = opts.Boards
 		if len(m.Boards) == 0 && e.JiraCfg.DefaultBoard != "" {
 			if id, err := strconv.Atoi(e.JiraCfg.DefaultBoard); err == nil {
@@ -171,6 +183,7 @@ func (e *Exporter) Export(ctx context.Context, opts ExportOptions) (*mirror.Mani
 	} else if e.Jira == nil && (len(opts.Boards) > 0 || len(opts.JQL) > 0) {
 		return nil, fmt.Errorf("--board/--jql need Jira (set JIRA_URL and a token)")
 	}
+	selectedIssues := e.exportedKeys()
 
 	pages := append([]string{}, opts.Pages...)
 	for _, b := range marks {
@@ -191,6 +204,11 @@ func (e *Exporter) Export(ctx context.Context, opts ExportOptions) (*mirror.Mani
 				}
 			}
 		}
+	}
+
+	if e.exportCrossRefs(ctx, selectedIssues) > 0 {
+		// Again: the issues pages refer to may name more fields.
+		_ = e.writeFile("jira/names.json", e.names)
 	}
 
 	if bookmarkFile != "" {
@@ -763,6 +781,7 @@ func (e *Exporter) storeIssue(ctx context.Context, is map[string]any) error {
 		e.stats.attachments++
 	}
 	e.exportXray(ctx, key, f, dir)
+	e.exportRemoteLinks(ctx, key, dir)
 	if err := writeJSONFile(filepath.Join(dir, "issue.json"), is); err != nil {
 		return err
 	}
@@ -874,6 +893,7 @@ func (e *Exporter) exportPageTree(ctx context.Context, id string) error {
 		}
 		if stored {
 			n++
+			e.treePages = append(e.treePages, pid)
 		}
 	}
 	e.logf("page tree %s: %d pages", id, n)
@@ -997,4 +1017,139 @@ func humanBytes(n int64) string {
 		return fmt.Sprintf("%.1f KiB", float64(n)/(1<<10))
 	}
 	return fmt.Sprintf("%d B", n)
+}
+
+// --- references between Jira and Confluence ---
+
+// exportedKeys lists the issues exported so far.
+func (e *Exporter) exportedKeys() []string {
+	keys := make([]string, 0, len(e.done))
+	for k := range e.done {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	return keys
+}
+
+// exportRemoteLinks stores an issue's remote links (Confluence pages
+// "mentioned in" / linked as wiki pages, web links) as remotelinks.json.
+func (e *Exporter) exportRemoteLinks(ctx context.Context, key, dir string) {
+	var links []any
+	if err := e.get(ctx, "/rest/api/2/issue/"+url.PathEscape(key)+"/remotelink", nil, &links); err != nil {
+		if !e.remoteLinkErr { // the same on every issue when the server refuses
+			e.remoteLinkErr = true
+			e.warn("%s remote links: %v (further failures not shown)", key, err)
+		}
+		return
+	}
+	if len(links) > 0 {
+		if err := writeJSONFile(filepath.Join(dir, "remotelinks.json"), links); err != nil {
+			e.warn("%s remote links: %v", key, err)
+		}
+	}
+}
+
+// exportCrossRefs exports one step across the Jira/Confluence boundary, so
+// links between the two open offline: the pages the selected issues (the
+// Jira sources and their relatives) link to, and the issues the bookmarked
+// and --page pages (with descendants) show or link to. Not recursive:
+// what is exported here brings in nothing further. It returns how many
+// issues it added.
+func (e *Exporter) exportCrossRefs(ctx context.Context, issues []string) int {
+	if e.Confluence != nil {
+		refs := map[string]xref.PageRef{}
+		var order []string
+		for _, key := range issues {
+			for _, r := range e.issuePageRefs(key) {
+				if _, ok := refs[r.Key()]; !ok {
+					refs[r.Key()] = r
+					order = append(order, r.Key())
+				}
+			}
+		}
+		n := 0
+		for _, k := range order {
+			r := refs[k]
+			id := r.ID
+			if id == "" {
+				var err error
+				if id, err = e.findPage(ctx, r.Space, r.Title); err != nil {
+					e.warn("page %q in %s: %v", r.Title, r.Space, err)
+					continue
+				}
+			}
+			stored, err := e.exportPage(ctx, id, false)
+			if err != nil {
+				e.warn("page %s (linked from an issue): %v", id, err)
+				continue
+			}
+			if stored {
+				n++
+			}
+		}
+		if len(order) > 0 {
+			e.logf("pages linked from issues: %d referenced, %d exported", len(order), n)
+		}
+	}
+	added := 0
+	if e.Jira != nil && len(e.treePages) > 0 {
+		before := e.stats.issues
+		var keys []string
+		seen := map[string]bool{}
+		for _, id := range e.treePages {
+			var p map[string]any
+			if err := readJSONFile(filepath.Join(e.stage, "confluence", "pages", id, "page.json"), &p); err != nil {
+				continue
+			}
+			body, _ := obj(obj(p, "body"), "storage")["value"].(string)
+			for _, r := range xref.IssueRefs(body, e.Jira.BaseURL()) {
+				if !seen[r.Key] {
+					seen[r.Key] = true
+					keys = append(keys, r.Key)
+				}
+			}
+		}
+		for _, k := range keys {
+			if err := e.exportKey(ctx, k); err != nil {
+				e.warn("issue %s (on a page): %v", k, err)
+			}
+		}
+		added = e.stats.issues - before
+		if len(keys) > 0 {
+			e.logf("issues on pages: %d referenced, %d exported", len(keys), added)
+		}
+	}
+	return added
+}
+
+// issuePageRefs lists the Confluence pages an exported issue links to, in
+// any field (description, comments, custom fields, rendered or not) or
+// remote link.
+func (e *Exporter) issuePageRefs(key string) []xref.PageRef {
+	dir := filepath.Join(e.stage, "jira", "issues", key)
+	var text strings.Builder
+	for _, name := range []string{"issue.json", "remotelinks.json"} {
+		var v any
+		if readJSONFile(filepath.Join(dir, name), &v) == nil {
+			text.WriteString(xref.Strings(v))
+		}
+	}
+	return xref.PageRefs(text.String(), e.Confluence.BaseURL())
+}
+
+// findPage looks a page up by space and title (a /display/ link).
+func (e *Exporter) findPage(ctx context.Context, space, title string) (string, error) {
+	var res struct {
+		Results []struct {
+			ID string `json:"id"`
+		} `json:"results"`
+	}
+	q := url.Values{"spaceKey": {space}, "title": {title}, "type": {"page"}, "limit": {"1"}}
+	if err := e.cget(ctx, "/rest/api/content", q, &res); err != nil {
+		return "", err
+	}
+	if len(res.Results) == 0 {
+		return "", fmt.Errorf("not found")
+	}
+	return res.Results[0].ID, nil
 }

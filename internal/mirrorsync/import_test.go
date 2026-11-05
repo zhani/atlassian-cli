@@ -215,3 +215,41 @@ func TestSideStateOfLegacyMirror(t *testing.T) {
 		t.Fatalf("merged legacy: jira %+v confluence %+v", *m.Jira, *m.Confluence)
 	}
 }
+
+// TestPruneKeepsLinkedItems: a side's full snapshot prunes its missing
+// items, except those a staying item of the mirror links to (brought in by
+// the other side's export through a reference).
+func TestPruneKeepsLinkedItems(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "mirror")
+	const jiraURL, confURL = "https://jira.example", "https://wiki.example"
+	both := mirror.Manifest{ExportedAt: "2026-10-01T00:00:00Z", JiraURL: jiraURL, ConfluenceURL: confURL}
+	if _, err := Import(sideArchive(t, both, []string{"A-1", "A-2", "A-3"}, []string{"10", "11", "12", "13"}), dir, ImportOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	// Page 10 shows A-2; A-1 links to pages 11 (by ID) and 12 (by title).
+	put(t, filepath.Join(dir, "confluence", "pages", "10", "page.json"),
+		`{"id":"10","body":{"storage":{"value":"<ac:structured-macro ac:name=\"jira\"><ac:parameter ac:name=\"key\">A-2</ac:parameter></ac:structured-macro>"}}}`)
+	put(t, filepath.Join(dir, "confluence", "pages", "12", "page.json"), `{"id":"12","title":"Design Notes","space":{"key":"DEV"}}`)
+
+	jiraOnly := mirror.Manifest{ExportedAt: "2026-10-08T00:00:00Z", JiraURL: jiraURL, Contents: []string{mirror.SideJira}}
+	res, err := Import(sideArchive(t, jiraOnly, []string{"A-1"}, nil), dir, ImportOptions{Prune: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Equal(res.Pruned, []string{"jira/issues/A-3"}) {
+		t.Fatalf("jira prune: pruned %v, want only A-3 (A-2 is on page 10)", res.Pruned)
+	}
+
+	put(t, filepath.Join(dir, "jira", "issues", "A-1", "issue.json"),
+		`{"key":"A-1","fields":{"description":"see https://wiki.example/pages/viewpage.action?pageId=11"}}`)
+	put(t, filepath.Join(dir, "jira", "issues", "A-1", "remotelinks.json"),
+		`[{"object":{"url":"https://wiki.example/display/DEV/Design+Notes"}}]`)
+	confOnly := mirror.Manifest{ExportedAt: "2026-10-09T00:00:00Z", ConfluenceURL: confURL, Contents: []string{mirror.SideConfluence}}
+	res, err = Import(sideArchive(t, confOnly, nil, []string{"10"}), dir, ImportOptions{Prune: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Equal(res.Pruned, []string{"confluence/pages/13"}) {
+		t.Fatalf("confluence prune: pruned %v, want only page 13 (11 and 12 are linked from A-1)", res.Pruned)
+	}
+}
