@@ -47,7 +47,10 @@ type ExportOptions struct {
 	// mirror.SideConfluence); empty exports every configured side. Import
 	// then leaves the other side of the mirror as it is.
 	Only string
-	Log  io.Writer
+	// Embeds maps documents pages embed by URL to local copies, which are
+	// attached and shown in place of the embed (see Embed).
+	Embeds []Embed
+	Log    io.Writer
 }
 
 // Exporter talks to the live servers. Jira or Confluence may be nil when
@@ -973,6 +976,8 @@ func (e *Exporter) exportPage(ctx context.Context, id string, checkSince bool) (
 		}
 		e.stats.attachments++
 	}
+	ptitle, _ := p["title"].(string)
+	atts = e.attachEmbeds(id, ptitle, dir, p, atts)
 	if err := writeJSONFile(filepath.Join(dir, "attachments.json"), atts); err != nil {
 		return false, err
 	}

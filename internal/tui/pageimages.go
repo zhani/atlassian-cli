@@ -14,6 +14,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/zhani/atlassian-cli/internal/confluence"
 	"github.com/zhani/atlassian-cli/internal/httpclient"
+	"github.com/zhani/atlassian-cli/internal/pdfslides"
 	"github.com/zhani/atlassian-cli/internal/termimg"
 )
 
@@ -27,6 +28,12 @@ type ImageSource interface {
 
 // maxImageBytes caps the size of a downloaded image.
 const maxImageBytes = 25 << 20
+
+// renderSlides renders a PDF's pages; tests replace it.
+var renderSlides = pdfslides.Render
+
+// maxPDFBytes caps the size of a downloaded PDF shown as slides.
+const maxPDFBytes = 200 << 20
 
 // maxPageImages caps how many images of a page are downloaded.
 const maxPageImages = 40
@@ -52,7 +59,17 @@ type pageImage struct {
 
 	blocks     []string // cached half-block rendering
 	blocksSize [2]int
+
+	// A PDF (viewpdf macro) is a deck: the PNG of each page, img being
+	// slides[slide]. gen counts slide changes, so a kitty transmission of
+	// a slide no longer shown is dropped.
+	slides [][]byte
+	slide  int
+	gen    int
 }
+
+// deck reports whether the image is a slide show of a PDF.
+func (im *pageImage) deck() bool { return len(im.slides) > 0 }
 
 type (
 	attachmentsMsg struct {
@@ -64,6 +81,7 @@ type (
 		pageID string
 		idx    int
 		img    *termimg.Image
+		slides [][]byte // a PDF's pages; img is the first
 		err    error
 	}
 )
@@ -150,6 +168,14 @@ func (m treeModel) fetchImages(pageID string, atts []confluence.Attachment) tea.
 			if err != nil {
 				return imageLoadedMsg{pageID: pageID, idx: idx, err: err}
 			}
+			if pdfslides.IsPDF(data) {
+				slides, err := renderSlides(ctx, data)
+				if err != nil {
+					return imageLoadedMsg{pageID: pageID, idx: idx, err: err}
+				}
+				img, err := termimg.Decode(slides[0])
+				return imageLoadedMsg{pageID: pageID, idx: idx, img: img, slides: slides, err: err}
+			}
 			img, err := termimg.Decode(data)
 			return imageLoadedMsg{pageID: pageID, idx: idx, img: img, err: err}
 		})
@@ -166,6 +192,12 @@ func downloadImage(ctx context.Context, src ImageSource, ref string, attachments
 	switch {
 	case isAttachmentRef(ref):
 		link, ok := attachments[ref]
+		if !ok {
+			// Escaped where the filename has spaces (viewpdf).
+			if name, err := url.PathUnescape(ref); err == nil {
+				link, ok = attachments[name]
+			}
+		}
 		if !ok || link == "" {
 			return nil, fmt.Errorf("attachment not found")
 		}
@@ -183,12 +215,16 @@ func downloadImage(ctx context.Context, src ImageSource, ref string, attachments
 		return nil, err
 	}
 	defer body.Close()
-	data, err := io.ReadAll(io.LimitReader(body, maxImageBytes+1))
+	limit, what := maxImageBytes, "image"
+	if strings.HasSuffix(strings.ToLower(ref), ".pdf") {
+		limit, what = maxPDFBytes, "PDF"
+	}
+	data, err := io.ReadAll(io.LimitReader(body, int64(limit)+1))
 	if err != nil {
 		return nil, err
 	}
-	if len(data) > maxImageBytes {
-		return nil, fmt.Errorf("image larger than %d MB", maxImageBytes>>20)
+	if len(data) > limit {
+		return nil, fmt.Errorf("%s larger than %d MB", what, limit>>20)
 	}
 	return data, nil
 }
@@ -274,6 +310,9 @@ func placeImages(g *graphics, rendered string, imgs []*pageImage, viewW, viewH i
 
 func imageCaption(g *graphics, n int, im *pageImage) string {
 	caption := fmt.Sprintf("  ▣ image %d: %s", n+1, im.name)
+	if im.deck() {
+		caption = fmt.Sprintf("  ▣ slide %d/%d: %s", im.slide+1, len(im.slides), im.name)
+	}
 	inPage := g != nil && g.caps.InPage != termimg.Off
 	switch {
 	case g == nil || g.caps.InPage == termimg.Off && g.caps.Preview == termimg.Off:
@@ -283,8 +322,12 @@ func imageCaption(g *graphics, n int, im *pageImage) string {
 		caption += " (" + im.err.Error() + ")"
 	case !im.loaded:
 		caption += " (loading…)"
+	case !inPage && im.deck():
+		caption += " (press i to view, [ ] to turn)"
 	case !inPage:
 		caption += " (press i to view)"
+	case im.deck():
+		caption += "  [ ]: previous/next · i: full screen"
 	}
 	return styleDim.Render(caption)
 }
@@ -320,8 +363,9 @@ func imageLines(g *graphics, im *pageImage, viewW, viewH int) []string {
 
 // transmitKitty sends a loaded image to kitty in the background.
 func (m treeModel) transmitKitty(pageID string, idx int, im *pageImage) tea.Cmd {
+	gen := im.gen
 	return kittyTransmitCmd(m.gfx, im, m.content.Width, m.content.Height, func(id uint32, cols, rows int, err error) tea.Msg {
-		return kittyReadyMsg{pageID: pageID, idx: idx, id: id, cols: cols, rows: rows, err: err}
+		return kittyReadyMsg{pageID: pageID, idx: idx, gen: gen, id: id, cols: cols, rows: rows, err: err}
 	})
 }
 
@@ -345,6 +389,7 @@ func kittyTransmitCmd(g *graphics, im *pageImage, viewW, viewH int, done func(id
 type kittyReadyMsg struct {
 	pageID     string
 	idx        int
+	gen        int // the image's gen when sent
 	id         uint32
 	cols, rows int
 	err        error
@@ -369,9 +414,22 @@ func (m treeModel) previewImages() (treeModel, tea.Cmd) {
 			continue
 		}
 		if start < 0 && i < len(m.imageAt) && m.imageAt[i] >= top {
-			start = len(p.Items)
+			start = len(p.Items) + im.slide
 		}
-		p.Items = append(p.Items, termimg.PreviewItem{Title: im.name, Image: im.img})
+		if !im.deck() {
+			p.Items = append(p.Items, termimg.PreviewItem{Title: im.name, Image: im.img})
+			continue
+		}
+		// Every slide of a deck, decoded when the preview reaches it.
+		for j, png := range im.slides {
+			item := termimg.PreviewItem{Title: fmt.Sprintf("%s, slide %d/%d", im.name, j+1, len(im.slides))}
+			if j == im.slide {
+				item.Image = im.img
+			} else {
+				item.Load = func() (*termimg.Image, error) { return termimg.Decode(png) }
+			}
+			p.Items = append(p.Items, item)
+		}
 	}
 	p.Index = max(0, start)
 	if len(p.Items) == 0 {
@@ -382,3 +440,67 @@ func (m treeModel) previewImages() (treeModel, tea.Cmd) {
 }
 
 type previewDoneMsg struct{ err error }
+
+// currentDeck is the slide show [ and ] turn: the first on the page that
+// is (at least partly) in view, else the first on the page.
+func (m treeModel) currentDeck() (int, *pageImage) {
+	imgs := m.images[m.shownID]
+	top, bottom := m.content.YOffset, m.content.YOffset+m.content.Height
+	first := -1
+	for i, im := range imgs {
+		if !im.deck() {
+			continue
+		}
+		if first < 0 {
+			first = i
+		}
+		if i >= len(m.imageAt) || m.imageAt[i] < 0 {
+			continue
+		}
+		_, rows := m.imageBox(im)
+		if m.imageAt[i]+rows >= top && m.imageAt[i] < bottom {
+			return i, im
+		}
+	}
+	if first < 0 {
+		return -1, nil
+	}
+	return first, imgs[first]
+}
+
+// turnSlide shows the next (d = 1) or previous (d = -1) slide of the
+// current deck, wrapping around.
+func (m treeModel) turnSlide(d int) (treeModel, tea.Cmd) {
+	idx, im := m.currentDeck()
+	if im == nil {
+		if imgs := m.images[m.shownID]; len(imgs) > 0 && !m.allLoaded(imgs) {
+			m.setStatus("Slides are still loading", false)
+		} else {
+			m.setStatus("No slides on this page", false)
+		}
+		return m, nil
+	}
+	next := (im.slide + d + len(im.slides)) % len(im.slides)
+	img, err := termimg.Decode(im.slides[next])
+	if err != nil {
+		m.setStatus(fmt.Sprintf("Slide %d: %v", next+1, err), true)
+		return m, nil
+	}
+	if m.gfx.kitty() && im.kittyID != 0 {
+		m.gfx.out.WriteSeqs(m.gfx.caps.Wrap(termimg.KittyDelete(im.kittyID), false)) //nolint:errcheck
+	}
+	im.slide, im.img, im.gen = next, img, im.gen+1
+	im.kittyID, im.placed, im.blocks, im.blocksSize = 0, [2]int{}, nil, [2]int{}
+	m.showContent()
+	return m, m.transmitKitty(m.shownID, idx, im)
+}
+
+// allLoaded reports whether every image has finished loading.
+func (m treeModel) allLoaded(imgs []*pageImage) bool {
+	for i, im := range imgs {
+		if i < maxPageImages && !im.loaded {
+			return false
+		}
+	}
+	return true
+}

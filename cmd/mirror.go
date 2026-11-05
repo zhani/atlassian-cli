@@ -66,7 +66,20 @@ the bookmark file always comes along). Jira changes often and Confluence
 rarely, so export them on their own schedules: importing one side leaves
 the other side of the mirror as it is (and --prune only prunes that side),
 and links between the two keep resolving because both live in the same
-mirror.`,
+mirror.
+
+Documents a page embeds from elsewhere (a Widget Connector showing a Google
+Slides deck, say) are out of reach offline. The embeds file maps their URLs
+to local copies, which the export attaches to the page and shows in place of
+the embed: a PDF as a slide show (the viewpdf macro; the page browser renders
+its pages with mutool or pdftoppm), an image as an image, anything else as a
+link. A widget with no mapping is reported. The file is a YAML list:
+
+  - url: https://docs.google.com/presentation/d/1jwmHV7I7qb4viFEZ1Cc2j  # or just the ID
+    file: ~/docs/Feature introduction.pdf
+
+A page exported with --since is only re-read when it changed, so after adding
+a mapping export without --since (or with --page) once.`,
 	Example: `  atlassian-cli mirror export --out mirror.tar.gz
   atlassian-cli mirror export --out mirror.tar.gz --board 42 --jql "project = PROJ AND sprint in openSprints()"
   atlassian-cli mirror export --out delta.tar.gz --since -7d
@@ -84,6 +97,18 @@ mirror.`,
 		noMine, _ := cmd.Flags().GetBool("no-my-issues")
 		since, _ := cmd.Flags().GetString("since")
 		only, _ := cmd.Flags().GetString("only")
+		embedsPath, _ := cmd.Flags().GetString("embeds")
+		required := embedsPath != ""
+		if !required {
+			embedsPath, _ = mirrorsync.DefaultEmbedsPath()
+		}
+		var embeds []mirrorsync.Embed
+		if embedsPath != "" {
+			var err error
+			if embeds, err = mirrorsync.LoadEmbeds(embedsPath, required); err != nil {
+				return fmt.Errorf("embeds: %w", err)
+			}
+		}
 
 		e := &mirrorsync.Exporter{}
 		var jerr, cerr error
@@ -97,7 +122,7 @@ mirror.`,
 			return fmt.Errorf("neither Jira nor Confluence is configured: %w", errors.Join(jerr, cerr))
 		}
 		_, err := e.Export(cmd.Context(), mirrorsync.ExportOptions{
-			Out: out, Boards: boards, JQL: jqls, Pages: pages, Bookmarks: !noBookmarks, Since: since, Only: only, Log: os.Stderr,
+			Out: out, Boards: boards, JQL: jqls, Pages: pages, Bookmarks: !noBookmarks, Since: since, Only: only, Embeds: embeds, Log: os.Stderr,
 			ActiveSprints: !noSprint, MyIssues: !noMine,
 		})
 		return err
@@ -261,6 +286,7 @@ func init() {
 	f.Bool("no-my-issues", false, "Do not export your issues that are unresolved or resolved as anything but Done/Fixed")
 	f.String("since", "", "Only issues and pages changed since: RFC 3339, 2006-01-02 or a period (-7d, 12h)")
 	f.String("only", "", "Export only one side: jira or confluence (default: both)")
+	f.String("embeds", "", "File mapping embedded document URLs to local copies (default ATLASSIAN_EMBEDS or ~/.config/atlassian-cli/embeds.yaml)")
 
 	for _, c := range []*cobra.Command{mirrorImportCmd, mirrorStatusCmd, mirrorServeCmd} {
 		c.Flags().String("dir", "", "Mirror directory (default ATLASSIAN_MIRROR or ~/.local/share/atlassian-cli/mirror)")

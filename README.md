@@ -169,6 +169,8 @@ These apply to Cloud and Server/DC alike.
 | `ATLASSIAN_BOOKMARKS` | Bookmark file (default `~/.config/atlassian-cli/bookmarks.yaml`) |
 | `ATLASSIAN_CA_FILE` | Extra CA certificates to trust (PEM, one or more, or a single DER `.crt`), on top of the system ones. For a private CA, and on macOS also for server certificates the system rejects whatever the keychain trusts (e.g. valid for more than 825 days): with this set, the certificate is checked against the file when the system check fails. If it is a chain, include the issuing (intermediate) CA |
 | `ATLASSIAN_IMAGES` | How the Confluence browser draws images: `auto` (default), `kitty`, `iterm`, `sixel`, `blocks` or `off` |
+| `ATLASSIAN_EMBEDS` | Embeds file of `mirror export` (default `~/.config/atlassian-cli/embeds.yaml`; see [Embedded documents](#embedded-documents)) |
+| `ATLASSIAN_SLIDES_CACHE` | Where the Confluence browser keeps rendered PDF slides (default `~/.cache/atlassian-cli/slides`) |
 | `GLAMOUR_STYLE` | Colour theme of rendered issues and pages (`dark`, `light`, `dracula`, …; default from the terminal background) |
 | `VISUAL` / `EDITOR` | Editor for `-e`, `confluence page edit` and `bookmark edit` (default `vi`) |
 
@@ -421,7 +423,8 @@ when they are the list's only columns, else after the table under each key.
 | `tab` / `w` | Switch between tree and page |
 | `ctrl+h` / `ctrl+l` | Focus the tree (left) / the page (right) |
 | `/` | Fuzzy-find pages (the whole space is loaded in the background): `↓`/`↑`, `ctrl+j`/`ctrl+k` or `ctrl+n`/`ctrl+p` move between matches, `enter` jumps to the page, `esc` goes back |
-| `i` | View the page's images full screen |
+| `i` | View the page's images full screen (every slide of an embedded PDF) |
+| `[` / `]` | Previous / next slide of the embedded PDF in view |
 | `L` | Jira issues on the page (Jira issue macros, links to issues, then the issues of its issue lists; with Jira configured): `enter` opens one in the issue browser, `q` there comes back |
 | `b` | Bookmark the page (again: remove the bookmark) |
 | `B` | Bookmarks: jump to a bookmarked page |
@@ -454,6 +457,15 @@ to override the detection.
 
 Known issue: the full-screen view stays blank with WezTerm on Windows connected
 over SSH to tmux (WezTerm on Linux works); see [TODO.md](TODO.md).
+
+An embedded PDF (Confluence's PDF macro, `viewpdf`, e.g. an offline copy from
+the mirror's [embeds file](#embedded-documents)) shows as a slide show in its
+place: one page at a time, `[`/`]` turn the pages, and `i` shows every page full
+screen. The pages are rendered with MuPDF's `mutool` or, failing that, Poppler's
+`pdftoppm` (`apt install mupdf-tools` / `poppler-utils`, `brew install mupdf`
+/ `poppler`), once per PDF: they are cached under `~/.cache/atlassian-cli/slides`
+(`ATLASSIAN_SLIDES_CACHE`). Without either the page shows the PDF's caption
+and the error; the PDF stays in the page's attachments either way.
 
 ### Confluence
 
@@ -583,6 +595,33 @@ functions are rejected with an error. Changes (create, transition, comment,
 
 `atlassian-cli mirror serve [--addr 127.0.0.1:18081]` serves the mirror over
 HTTP for other tools (Jira at `/`, Confluence at `/wiki`).
+
+### Embedded documents
+
+A page that embeds a document from another site — a Widget Connector showing a
+Google Slides deck, say — shows nothing offline, and often the exporting
+machine can't reach that site either. Keep a local copy (export the deck as
+PDF) and map it in the embeds file, `~/.config/atlassian-cli/embeds.yaml` on the
+exporting machine (or `ATLASSIAN_EMBEDS`, or `mirror export --embeds FILE`):
+
+```yaml
+- url: https://docs.google.com/presentation/d/1jwmHV7I7qb4viFEZ1Cc2j-j6EDIh8D1JJ7Jo97mWgHs
+  file: ~/docs/Feature development introduction.pdf
+- url: 1aBcD3fGhIjK   # any part of the URL will do, e.g. the document ID
+  file: slides/other.pdf   # relative to the embeds file
+```
+
+`mirror export` then attaches the file to every exported page embedding a
+matching URL (a macro's `url` parameter; query, fragment and a trailing
+`/edit`, `/view`, `/preview`, `/pub`, `/embed` are ignored) and puts it in place
+of the embed: a PDF as Confluence's PDF macro, which the page browser shows as
+a slide show (see [Images in the Confluence browser](#images-in-the-confluence-browser))
+and `page get` as an image link with the embedded URL; an image as an image;
+anything else as a link to the attachment. Only the file travels in the
+archive; the slides are rendered where the page is viewed. A Widget Connector
+with no mapping is reported in the export's warnings, so the log shows what is
+still missing. The live pages are not changed. Pages are only re-read when
+they changed, so after adding a mapping export once without `--since`.
 
 ## Output Formats
 

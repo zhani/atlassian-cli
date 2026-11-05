@@ -1,5 +1,13 @@
 # Changelog
 
+## Unreleased
+
+### Offline mirror
+- Embedded documents: an embeds file (`~/.config/atlassian-cli/embeds.yaml`, `ATLASSIAN_EMBEDS` or `mirror export --embeds FILE`) maps the URLs pages embed (a Widget Connector showing a Google Slides deck, say) to local copies. `mirror export` attaches each copy to the pages embedding it and puts it in place of the embed — a PDF as the PDF macro (`viewpdf`), an image as an image, else a link — and warns about Widget Connectors with no mapping.
+
+### Confluence page browser
+- An embedded PDF (the `viewpdf` macro) shows as a slide show in place: `[`/`]` turn the pages, `i` shows every page full screen. Pages are rendered with `mutool` or `pdftoppm` and cached (`ATLASSIAN_SLIDES_CACHE`). `page get` shows the macro as an image link to the PDF.
+
 ## [v0.4.6](https://github.com/zhani/atlassian-cli/commits/v0.4.6) - 2026-11-05
 
 ### Confluence page browser

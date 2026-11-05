@@ -176,3 +176,69 @@ func TestPreviewKey(t *testing.T) {
 		t.Errorf("status %q", next.(treeModel).status)
 	}
 }
+
+// deckPages serves a page embedding a PDF (viewpdf) whose name has spaces.
+type deckPages struct{ imagePages }
+
+func (f *deckPages) GetPage(_ context.Context, id string, _ []string) (*confluence.Page, error) {
+	return &confluence.Page{ID: id, Title: "Page " + id, Body: confluence.PageBody{Storage: &confluence.BodyContent{Value: `<p>Deck</p>` +
+		`<ac:structured-macro ac:name="viewpdf"><ac:parameter ac:name="name"><ri:attachment ri:filename="Intro deck.pdf" /></ac:parameter></ac:structured-macro>`}}}, nil
+}
+
+func (f *deckPages) GetAttachments(context.Context, string) ([]confluence.Attachment, error) {
+	return []confluence.Attachment{{Title: "Intro deck.pdf", Links: map[string]string{"download": "/download/deck.pdf"}}}, nil
+}
+
+func (f *deckPages) DownloadAttachment(_ context.Context, path string) (io.ReadCloser, error) {
+	f.record("download " + path)
+	return io.NopCloser(strings.NewReader("%PDF-1.4 deck")), nil
+}
+
+func TestPageSlideShow(t *testing.T) {
+	slide := func(w, h int) []byte {
+		var buf bytes.Buffer
+		png.Encode(&buf, image.NewRGBA(image.Rect(0, 0, w, h)))
+		return buf.Bytes()
+	}
+	t.Cleanup(func() { renderSlides = pdfslidesRender })
+	renderSlides = func(_ context.Context, pdf []byte) ([][]byte, error) {
+		if !strings.HasPrefix(string(pdf), "%PDF") {
+			t.Errorf("rendered %q", pdf)
+		}
+		return [][]byte{slide(64, 36), slide(32, 64), slide(48, 48)}, nil
+	}
+	src := &deckPages{}
+	m := newTree(context.Background(), TreeOptions{Source: src, Space: "DEV"}, plainRenderer)
+	m.gfx = &graphics{caps: termimg.Caps{InPage: termimg.Blocks, Preview: termimg.Blocks}, cellW: 8, cellH: 16}
+	m = drainTree(m, m.Init())
+	if !strings.Contains(strings.Join(src.calls, ","), "download /download/deck.pdf") {
+		t.Fatalf("the PDF was not downloaded by its escaped name: %v", src.calls)
+	}
+	if v := m.content.View(); !strings.Contains(v, "▣ slide 1/3: Intro deck.pdf") || !strings.Contains(v, "[ ]: previous/next") {
+		t.Fatalf("first slide not shown:\n%s", v)
+	}
+	size := func(m treeModel) [2]int {
+		w, h := m.images[m.shownID][0].img.Size()
+		return [2]int{w, h}
+	}
+	key := func(m treeModel, k string) treeModel {
+		next, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(k)})
+		return next.(treeModel)
+	}
+	m = key(m, "]")
+	if v := m.content.View(); !strings.Contains(v, "▣ slide 2/3") || size(m) != [2]int{32, 64} {
+		t.Errorf("] must show slide 2:\n%s", v)
+	}
+	m = key(key(m, "["), "[") // back past the first: wraps to the last
+	if v := m.content.View(); !strings.Contains(v, "▣ slide 3/3") || size(m) != [2]int{48, 48} {
+		t.Errorf("[ must wrap to slide 3:\n%s", v)
+	}
+
+	// A page without decks only reports it.
+	m2, _ := openImagePage(t, &graphics{caps: termimg.Caps{InPage: termimg.Blocks, Preview: termimg.Blocks}, cellW: 8, cellH: 16})
+	if s := key(m2, "]").status; s != "No slides on this page" {
+		t.Errorf("status %q", s)
+	}
+}
+
+var pdfslidesRender = renderSlides

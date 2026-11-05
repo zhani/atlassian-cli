@@ -1,6 +1,7 @@
 package htmlconv
 
 import (
+	"net/url"
 	"strconv"
 	"strings"
 
@@ -196,9 +197,41 @@ func renderMacro(b *strings.Builder, n *html.Node) {
 			b.WriteString("Jira issues: `" + strings.TrimSpace(jql) + "`")
 		}
 
+	case "viewpdf":
+		// An embedded PDF, as an image of the attachment: the page browser
+		// shows such an "image" as a slide show of its pages.
+		name := macroAttachment(n, "name")
+		if name == "" {
+			return
+		}
+		if out := b.String(); out != "" && !strings.HasSuffix(out, "\n\n") {
+			b.WriteString("\n\n")
+		}
+		// Escaped: a Markdown link target can't hold spaces.
+		b.WriteString("![" + name + "](" + url.PathEscape(name) + ")\n\n")
+		if u := strings.TrimSpace(getMacroParam(n, "embedded-url")); u != "" {
+			b.WriteString("*Offline copy of " + u + "*\n\n")
+		}
+
 	default:
 		walkChildren(b, n)
 	}
+}
+
+// macroAttachment is the attachment filename a macro parameter names
+// (<ri:attachment ri:filename="…"/>).
+func macroAttachment(n *html.Node, paramName string) string {
+	for c := n.FirstChild; c != nil; c = c.NextSibling {
+		if c.Type != html.ElementNode || c.Data != "ac:parameter" || getAttr(c, "ac:name") != paramName {
+			continue
+		}
+		for a := c.FirstChild; a != nil; a = a.NextSibling {
+			if a.Type == html.ElementNode && a.Data == "ri:attachment" {
+				return getAttr(a, "ri:filename")
+			}
+		}
+	}
+	return ""
 }
 
 func renderACLink(b *strings.Builder, n *html.Node) {

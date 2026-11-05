@@ -123,3 +123,16 @@ func TestConvert(t *testing.T) {
 		})
 	}
 }
+
+func TestConvertViewPDF(t *testing.T) {
+	t.Parallel()
+	in := `<p>Deck:</p><ac:structured-macro ac:name="viewpdf"><ac:parameter ac:name="name"><ri:attachment ri:filename="Intro deck.pdf" /></ac:parameter>` +
+		`<ac:parameter ac:name="embedded-url">https://docs.google.com/x</ac:parameter></ac:structured-macro>`
+	want := "Deck:\n\n![Intro deck.pdf](Intro%20deck.pdf)\n\n*Offline copy of https://docs.google.com/x*"
+	if got := Convert(in); got != want {
+		t.Errorf("got %q, want %q", got, want)
+	}
+	if got := Convert(`<ac:structured-macro ac:name="viewpdf"></ac:structured-macro>`); got != "" {
+		t.Errorf("no attachment: got %q", got)
+	}
+}
