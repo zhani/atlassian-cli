@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## [v0.4.5](https://github.com/zhani/atlassian-cli/commits/v0.4.5) - 2026-11-05
 
 ### Offline mirror
 - Links between Jira and Confluence open offline. `mirror export` follows them one step: the Confluence pages the exported issues link to (their remote "wiki page" links, and page links in any field — `viewpage.action?pageId=`, `/spaces/…/pages/N`, `/display/SPACE/Title`, tiny `/x/…` links) and the Jira issues the bookmarked and `--page` pages (with descendants) show in a Jira issue macro or link to. What those bring in is not followed further. This happens whatever `--only` says, so a Jira-only archive also carries the pages its issues link to.
