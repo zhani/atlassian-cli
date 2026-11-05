@@ -415,14 +415,23 @@ func (m treeModel) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 
+	if cmd, ok := tmuxPaneKey(msg); ok {
+		return m, cmd
+	}
 	switch {
 	case key.Matches(msg, treeKeys.focus):
 		m.focusContent = !m.focusContent
 		return m, nil
 	case key.Matches(msg, paneKeys.left):
+		if !m.focusContent {
+			return m, tmuxSelectPane("L")
+		}
 		m.focusContent = false
 		return m, nil
 	case key.Matches(msg, paneKeys.right):
+		if m.focusContent {
+			return m, tmuxSelectPane("R")
+		}
 		m.focusContent = true
 		return m, nil
 	case key.Matches(msg, keys.help):

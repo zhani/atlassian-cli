@@ -153,6 +153,9 @@ func (m explorerModel) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.forward(msg)
 	}
 
+	if cmd, ok := tmuxPaneKey(msg); ok {
+		return m, cmd
+	}
 	switch {
 	case key.Matches(msg, keys.quit):
 		m.quitting = true
@@ -161,9 +164,15 @@ func (m explorerModel) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.focusRight = !m.focusRight
 		return m, nil
 	case key.Matches(msg, paneKeys.left):
+		if !m.focusRight {
+			return m, tmuxSelectPane("L")
+		}
 		m.focusRight = false
 		return m, nil
 	case key.Matches(msg, paneKeys.right):
+		if m.focusRight {
+			return m, tmuxSelectPane("R")
+		}
 		m.focusRight = true
 		return m, nil
 	}
