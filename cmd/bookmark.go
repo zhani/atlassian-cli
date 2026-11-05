@@ -282,10 +282,8 @@ func openBookmark(cmd *cobra.Command, b bookmarks.Bookmark) error {
 			}
 			return newFormatter(cmd).PrintPage(p)
 		}
-		opts := tui.TreeOptions{Source: client, PageID: b.Key, Space: b.Space, OpenURL: browser.Open, Copy: tui.CopyToClipboard}
-		if store, err := bookmarks.Open(); err == nil {
-			opts.Bookmarks = store
-		}
+		opts := pageTreeOptions(client)
+		opts.PageID, opts.Space = b.Key, b.Space
 		return tui.RunPageTree(ctx, opts)
 	}
 

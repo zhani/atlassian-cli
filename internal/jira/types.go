@@ -34,6 +34,26 @@ type Issue struct {
 	// XrayRuns holds the Xray test runs its TestRunStatus field names, as
 	// returned by Xray; filled by Client.LoadXrayRuns, not part of the JSON.
 	XrayRuns []map[string]any `json:"-"`
+
+	// RemoteLinks holds the issue's remote links (Confluence pages, web
+	// links); filled by Client.LoadRemoteLinks, not part of the JSON.
+	RemoteLinks []RemoteLink `json:"-"`
+}
+
+// RemoteLink is a link from an issue to something outside Jira: a
+// Confluence page ("mentioned in", "wiki page") or a web page.
+type RemoteLink struct {
+	ID           int    `json:"id"`
+	GlobalID     string `json:"globalId,omitempty"`
+	Relationship string `json:"relationship,omitempty"`
+	Application  struct {
+		Type string `json:"type,omitempty"`
+		Name string `json:"name,omitempty"`
+	} `json:"application"`
+	Object struct {
+		URL   string `json:"url"`
+		Title string `json:"title"`
+	} `json:"object"`
 }
 
 // RenderedFields holds the HTML-rendered versions of an issue's text fields.

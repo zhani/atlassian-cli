@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"context"
 	"regexp"
 	"sort"
 	"strings"
@@ -10,21 +11,25 @@ import (
 	"github.com/charmbracelet/lipgloss"
 	"github.com/zhani/atlassian-cli/internal/jira"
 	"github.com/zhani/atlassian-cli/internal/xray"
+	"github.com/zhani/atlassian-cli/internal/xref"
 )
 
 // Following links from the detail view: l lists the issues the shown issue
 // points to (parent, epic, issue links, subtasks, Xray tests covering it,
-// keys mentioned in its text); enter opens one in the detail view and esc
-// walks back the way you came.
+// keys mentioned in its text), then the Confluence pages it links to
+// (crosslinks.go); enter opens an issue in the detail view (esc walks back
+// the way you came) or a page in the page browser.
 
 var (
 	issueLinksKey = key.NewBinding(key.WithKeys("l"), key.WithHelp("l", "follow links"))
 	linkOpenKey   = key.NewBinding(key.WithKeys("enter"), key.WithHelp("enter", "open"))
 )
 
-// linkItem is one issue the shown issue points to.
+// linkItem is one issue (or, with page set, Confluence page) the shown
+// issue points to.
 type linkItem struct {
 	rel, key, summary, status string
+	page                      *xref.PageRef
 }
 
 var mentionedKey = regexp.MustCompile(`\b[A-Z][A-Z0-9_]+-\d+\b`)
@@ -133,6 +138,9 @@ func (m model) openLinks() (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	m.links = issueLinkItems(issue, m.knownIssue)
+	if m.opts.OpenPage != nil {
+		m.links = append(m.links, issuePageItems(issue, m.opts.PageBases)...)
+	}
 	if len(m.links) == 0 {
 		m.setStatus("No links on "+m.detailKey, false)
 		return m, nil
@@ -157,10 +165,14 @@ func (m model) handleLinksKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case key.Matches(msg, keys.bottom):
 		m.linkCursor = len(m.links) - 1
 	case key.Matches(msg, keys.choose):
-		target := m.links[m.linkCursor].key
+		it := m.links[m.linkCursor]
 		m.mode = modeDetail
 		m.layout()
-		return m.followTo(target)
+		if it.page != nil {
+			ref, open := *it.page, m.opts.OpenPage
+			return m, execCross(m.ctx, ref.Label(), func(ctx context.Context) error { return open(ctx, ref) })
+		}
+		return m.followTo(it.key)
 	}
 	return m, nil
 }
@@ -198,7 +210,7 @@ func (m model) showInDetail(k string) (tea.Model, tea.Cmd) {
 // linksView renders the link picker.
 func (m model) linksView() string {
 	var sb strings.Builder
-	sb.WriteString(styleDim.Render(" Open a linked issue (enter), esc to go back:") + "\n\n")
+	sb.WriteString(styleDim.Render(" Open a linked issue or page (enter), esc to go back:") + "\n\n")
 	relW := 0
 	for _, l := range m.links {
 		relW = max(relW, lipgloss.Width(l.rel))

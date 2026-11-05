@@ -186,6 +186,16 @@ func renderMacro(b *strings.Builder, n *html.Node) {
 	case "toc":
 		// Remove table of contents macro
 
+	case "jira":
+		// The issue key (the page browser's L follows it), or the query of
+		// an issue list; never the server name/ID parameters.
+		switch k, jql := getMacroParam(n, "key"), getMacroParam(n, "jqlQuery"); {
+		case k != "":
+			b.WriteString("**" + strings.TrimSpace(k) + "**")
+		case jql != "":
+			b.WriteString("Jira issues: `" + strings.TrimSpace(jql) + "`")
+		}
+
 	default:
 		walkChildren(b, n)
 	}
@@ -390,4 +400,3 @@ func getMacroBody(n *html.Node) string {
 	}
 	return ""
 }
-

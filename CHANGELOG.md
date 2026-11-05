@@ -1,5 +1,18 @@
 # Changelog
 
+## Unreleased
+
+### Offline mirror
+- Links between Jira and Confluence open offline. `mirror export` follows them one step: the Confluence pages the exported issues link to (their remote "wiki page" links, and page links in any field — `viewpage.action?pageId=`, `/spaces/…/pages/N`, `/display/SPACE/Title`, tiny `/x/…` links) and the Jira issues the bookmarked and `--page` pages (with descendants) show in a Jira issue macro or link to. What those bring in is not followed further. This happens whatever `--only` says, so a Jira-only archive also carries the pages its issues link to.
+- Issues' remote links are exported and served by the mirror (they were always empty).
+- `mirror import --prune` keeps items that the mirror's other items still link to, so a one-side full snapshot doesn't drop the issues or pages the other side's export brought in.
+- The manifest records both service URLs whenever both are configured, so links are rewritten to the mirror in either direction.
+
+### Interactive browsers
+- `l` in the issue detail view also lists the Confluence pages the issue links to (remote links first, then page links in its text); `enter` opens the page in the page browser, and `q` there returns to the issue.
+- `L` in `confluence browse` lists the Jira issues the page shows (Jira issue macros) or links to; `enter` opens one in the issue browser, and `q` there returns to the page.
+- The Jira issue macro renders as the issue key (or "Jira issues: `JQL`" for an issue list) instead of its raw parameters.
+
 ## [v0.4.4](https://github.com/zhani/atlassian-cli/commits/v0.4.4) - 2026-11-03
 
 ### Offline mirror

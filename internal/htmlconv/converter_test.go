@@ -100,6 +100,16 @@ func TestConvert(t *testing.T) {
 			"進行中",
 		},
 		{"p with inline code", "<p>Use <code>go test</code> to run</p>", "Use `go test` to run"},
+		{
+			"jira issue macro",
+			`<p>Tracked in <ac:structured-macro ac:name="jira" ac:schema-version="1"><ac:parameter ac:name="server">Corp Jira</ac:parameter><ac:parameter ac:name="serverId">abc-123</ac:parameter><ac:parameter ac:name="key">DEV-42</ac:parameter></ac:structured-macro></p>`,
+			"Tracked in **DEV-42**",
+		},
+		{
+			"jira query macro",
+			`<ac:structured-macro ac:name="jira"><ac:parameter ac:name="server">Corp Jira</ac:parameter><ac:parameter ac:name="jqlQuery">project = DEV</ac:parameter></ac:structured-macro>`,
+			"Jira issues: `project = DEV`",
+		},
 	}
 
 	for _, tt := range tests {

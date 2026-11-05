@@ -180,6 +180,14 @@ func MergeImport(old, in *Manifest, importedAt string) *Manifest {
 			}
 		}
 	}
+	// The other side's URL too while the mirror has none: an archive carries
+	// that side's items it references, and links are rewritten by it.
+	if m.JiraURL == "" && in.JiraURL != "" {
+		m.JiraURL, m.Cloud = in.JiraURL, in.Cloud
+	}
+	if m.ConfluenceURL == "" && in.ConfluenceURL != "" {
+		m.ConfluenceURL = in.ConfluenceURL
+	}
 	m.Contents = nil
 	for _, s := range Sides {
 		if contents[s] {

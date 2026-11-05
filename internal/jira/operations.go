@@ -162,6 +162,22 @@ func (c *Client) UnlinkIssues(ctx context.Context, a, b, typeName string) (int, 
 	return removed, nil
 }
 
+// GetRemoteLinks lists an issue's remote links (Confluence pages, web
+// links).
+func (c *Client) GetRemoteLinks(ctx context.Context, key string) ([]RemoteLink, error) {
+	var links []RemoteLink
+	err := c.http.Do(ctx, "GET", "/rest/api/2/issue/"+url.PathEscape(key)+"/remotelink", nil, nil, &links)
+	return links, err
+}
+
+// LoadRemoteLinks fills issue.RemoteLinks (best effort: on error the issue
+// has none and the error is returned for reporting).
+func (c *Client) LoadRemoteLinks(ctx context.Context, issue *Issue) error {
+	links, err := c.GetRemoteLinks(ctx, issue.Key)
+	issue.RemoteLinks = links
+	return err
+}
+
 // AddRemoteLink adds a web link to an issue.
 func (c *Client) AddRemoteLink(ctx context.Context, key, linkURL, title string) error {
 	if title == "" {

@@ -49,7 +49,11 @@ issues of the active sprints (of those boards, else of JIRA_DEFAULT_PROJECT;
 there may be none, --no-active-sprint) and your issues that are unresolved or
 resolved as anything but Done/Fixed (--no-my-issues). The issues one step away
 from the exported ones come along (parent, subtasks, epic, every linked issue in
-either direction, Xray test coverage), but not their own relatives. Every issue and page carries its attachments.
+either direction, Xray test coverage), but not their own relatives. Links
+across the two sides come along one step too: the Confluence pages those
+issues link to (remote links, page links in any field) and the Jira issues
+the exported pages show (Jira issue macro) or link to, but nothing these
+bring in turn. Every issue and page carries its attachments.
 
 Without --since the archive is a full snapshot; with it, only issues and
 pages changed since then.

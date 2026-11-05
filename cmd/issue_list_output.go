@@ -85,6 +85,7 @@ func browserOptions(client *jira.Client, limit int) tui.Options {
 			return bookmarkView(ctx, client, cfg, b)
 		}
 	}
+	withPageLinks(&opts)
 	return opts
 }
 

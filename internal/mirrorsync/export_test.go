@@ -224,7 +224,8 @@ func TestExportOnlyOneSide(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !slices.Equal(m.Contents, []string{mirror.SideJira}) || m.ConfluenceURL != "" || m.JiraURL == "" || confHits != 0 {
+	// Both URLs are recorded whenever configured (cross-references, link rewriting).
+	if !slices.Equal(m.Contents, []string{mirror.SideJira}) || m.ConfluenceURL != csrv.URL || m.JiraURL == "" || confHits != 0 {
 		t.Fatalf("--only jira: contents %v, confluence url %q, %d Confluence request(s)", m.Contents, m.ConfluenceURL, confHits)
 	}
 
@@ -232,7 +233,7 @@ func TestExportOnlyOneSide(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !slices.Equal(m.Contents, []string{mirror.SideConfluence}) || m.JiraURL != "" || m.ConfluenceURL == "" || m.Issues != 0 {
+	if !slices.Equal(m.Contents, []string{mirror.SideConfluence}) || m.JiraURL != jsrv.URL || m.ConfluenceURL == "" || m.Issues != 0 {
 		t.Fatalf("--only confluence: %+v", m)
 	}
 
@@ -257,5 +258,109 @@ func TestExportOnlyOneSide(t *testing.T) {
 	if _, err := (&Exporter{Jira: jira.NewClient(jcfg), JiraCfg: jcfg}).Export(context.Background(),
 		ExportOptions{Out: out(), Log: io.Discard, Only: mirror.SideConfluence}); err == nil {
 		t.Error("--only confluence without Confluence configured: want an error")
+	}
+}
+
+// TestExportCrossRefs: issues bring in the pages they link to (description,
+// remote links, /display/ links resolved by title) and exported pages bring
+// in the issues they show or link to, one step only.
+func TestExportCrossRefs(t *testing.T) {
+	var jsrv, csrv *httptest.Server
+	issues := map[string]func() string{
+		"P-1": func() string {
+			return `{"key":"P-1","fields":{"summary":"root","description":"spec: [x|` + csrv.URL + `/pages/viewpage.action?pageId=10]"}}`
+		},
+		// On page 20; its own page and parent must not follow.
+		"P-30": func() string {
+			return `{"key":"P-30","fields":{"parent":{"key":"P-32"},"description":"` + csrv.URL + `/pages/viewpage.action?pageId=12"}}`
+		},
+	}
+	remote := map[string]func() string{
+		"P-1": func() string {
+			return `[{"id":1,"object":{"url":"` + csrv.URL + `/display/DEV/The+Spec","title":"The Spec"}}]`
+		},
+	}
+	ok := func(body string) http.HandlerFunc {
+		return func(w http.ResponseWriter, _ *http.Request) { io.WriteString(w, body) }
+	}
+	jm := http.NewServeMux()
+	jm.HandleFunc("GET /rest/api/2/myself", ok(`{"name":"me"}`))
+	jm.HandleFunc("GET /rest/api/2/field", ok(`[]`))
+	jm.HandleFunc("GET /rest/api/2/issueLinkType", ok(`{"issueLinkTypes":[]}`))
+	jm.HandleFunc("GET /rest/api/2/issue/{key}/comment", ok(`{"comments":[],"total":0}`))
+	jm.HandleFunc("GET /rest/api/2/issue/{key}/remotelink", func(w http.ResponseWriter, r *http.Request) {
+		body := `[]`
+		if f, found := remote[r.PathValue("key")]; found {
+			body = f()
+		}
+		io.WriteString(w, body)
+	})
+	jm.HandleFunc("GET /rest/api/2/issue/{key}", func(w http.ResponseWriter, r *http.Request) {
+		key := r.PathValue("key")
+		body := `{"key":"` + key + `","fields":{}}`
+		if f, found := issues[key]; found {
+			body = f()
+		}
+		io.WriteString(w, body)
+	})
+	jm.HandleFunc("GET /rest/api/2/search", func(w http.ResponseWriter, r *http.Request) {
+		io.WriteString(w, `{"startAt":0,"maxResults":100,"total":1,"issues":[`+issues["P-1"]()+`]}`)
+	})
+	jsrv = httptest.NewServer(jm)
+	t.Cleanup(jsrv.Close)
+
+	page := func(id, body string) string {
+		return `{"id":"` + id + `","type":"page","title":"T` + id + `","space":{"key":"DEV"},"version":{"number":1,"when":"2026-10-30T10:00:00.000Z"},"body":{"storage":{"value":"` + body + `"}}}`
+	}
+	cm := http.NewServeMux()
+	cm.HandleFunc("GET /rest/api/content/search", ok(`{"results":[],"_links":{}}`))
+	cm.HandleFunc("GET /rest/api/content/{id}/child/attachment", ok(`{"results":[],"_links":{}}`))
+	cm.HandleFunc("GET /rest/api/content", func(w http.ResponseWriter, r *http.Request) {
+		q := r.URL.Query()
+		if q.Get("spaceKey") == "DEV" && q.Get("title") == "The Spec" {
+			io.WriteString(w, `{"results":[{"id":"11"}]}`)
+			return
+		}
+		io.WriteString(w, `{"results":[]}`)
+	})
+	cm.HandleFunc("GET /rest/api/content/{id}", func(w http.ResponseWriter, r *http.Request) {
+		id := r.PathValue("id")
+		body := ""
+		if id == "20" {
+			body = `<ac:structured-macro ac:name=\"jira\"><ac:parameter ac:name=\"key\">P-30</ac:parameter></ac:structured-macro>` +
+				`<a href=\"` + jsrv.URL + `/browse/P-31\">P-31</a>`
+		}
+		io.WriteString(w, page(id, body))
+	})
+	csrv = httptest.NewServer(cm)
+	t.Cleanup(csrv.Close)
+
+	jcfg := &config.AtlassianConfig{URL: jsrv.URL, Token: "x"}
+	ccfg := &config.AtlassianConfig{URL: csrv.URL, Token: "x"}
+	e := &Exporter{Jira: jira.NewClient(jcfg), JiraCfg: jcfg, Confluence: confluence.NewClient(ccfg), ConfCfg: ccfg}
+	m, err := e.Export(context.Background(), ExportOptions{
+		Out: filepath.Join(t.TempDir(), "m.tar.gz"), Log: io.Discard, JQL: []string{"key = P-1"}, Pages: []string{"20"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, id := range []string{"10", "11", "20"} {
+		if !e.pageDone[id] {
+			t.Errorf("page %s not exported", id)
+		}
+	}
+	if e.pageDone["12"] {
+		t.Error("page 12 is linked from an issue that came in through a page: must not be exported")
+	}
+	for _, k := range []string{"P-1", "P-30", "P-31"} {
+		if !e.done[k] {
+			t.Errorf("issue %s not exported", k)
+		}
+	}
+	if e.done["P-32"] {
+		t.Error("P-32 is a relative of an issue on a page: must not be exported")
+	}
+	if m.Issues != 3 || m.Pages != 3 {
+		t.Errorf("manifest counts: %d issues, %d pages", m.Issues, m.Pages)
 	}
 }

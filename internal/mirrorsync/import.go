@@ -16,6 +16,7 @@ import (
 
 	"github.com/zhani/atlassian-cli/internal/bookmarks"
 	"github.com/zhani/atlassian-cli/internal/mirror"
+	"github.com/zhani/atlassian-cli/internal/xref"
 	"go.yaml.in/yaml/v3"
 )
 
@@ -256,6 +257,13 @@ func Import(archive, dir string, opts ImportOptions) (*ImportResult, error) {
 		}
 	}
 	sort.Strings(stale)
+	if opts.Prune && len(stale) > 0 {
+		var linked int
+		stale, linked = keepLinked(dir, stale, firstNonEmpty(in.JiraURL, oldURL(old, true)), firstNonEmpty(in.ConfluenceURL, oldURL(old, false)))
+		if linked > 0 {
+			logf("keeping %d item(s) missing from the snapshot that mirrored items still link to", linked)
+		}
+	}
 	if opts.Prune {
 		if len(stale) > 0 {
 			logf("pruning %d item(s) not in the snapshot:", len(stale))
@@ -407,4 +415,99 @@ func countMirror(dir string, m *mirror.Manifest) {
 		m.Attachments += len(ja) + len(ca) + len(xa)
 	}
 	m.Bytes = dirSize(dir)
+}
+
+func firstNonEmpty(a, b string) string {
+	if a != "" {
+		return a
+	}
+	return b
+}
+
+func oldURL(m *mirror.Manifest, jira bool) string {
+	switch {
+	case m == nil:
+		return ""
+	case jira:
+		return m.JiraURL
+	default:
+		return m.ConfluenceURL
+	}
+}
+
+// keepLinked drops from stale the issues and pages that a mirrored item
+// (one that stays) links to: a side's full snapshot doesn't carry what the
+// other side's export brought in by reference, and pruning those would
+// break the links between the two. It returns the rest and how many it
+// kept.
+func keepLinked(dir string, stale []string, jiraURL, confURL string) ([]string, int) {
+	staleSet := map[string]bool{}
+	for _, rel := range stale {
+		staleSet[filepath.ToSlash(rel)] = true
+	}
+	issueRefs, pageIDs, pageTitles := map[string]bool{}, map[string]bool{}, map[string]bool{}
+	if confURL != "" {
+		dirs, _ := filepath.Glob(filepath.Join(dir, "jira", "issues", "*"))
+		for _, d := range dirs {
+			rel, _ := filepath.Rel(dir, d)
+			if staleSet[filepath.ToSlash(rel)] {
+				continue
+			}
+			var text strings.Builder
+			for _, name := range []string{"issue.json", "remotelinks.json"} {
+				var v any
+				if readJSONFile(filepath.Join(d, name), &v) == nil {
+					text.WriteString(xref.Strings(v))
+				}
+			}
+			for _, r := range xref.PageRefs(text.String(), confURL) {
+				if r.ID != "" {
+					pageIDs[r.ID] = true
+				} else {
+					pageTitles[r.Space+"/"+strings.ToLower(r.Title)] = true
+				}
+			}
+		}
+	}
+	if jiraURL != "" {
+		dirs, _ := filepath.Glob(filepath.Join(dir, "confluence", "pages", "*"))
+		for _, d := range dirs {
+			rel, _ := filepath.Rel(dir, d)
+			if staleSet[filepath.ToSlash(rel)] {
+				continue
+			}
+			var p map[string]any
+			if readJSONFile(filepath.Join(d, "page.json"), &p) != nil {
+				continue
+			}
+			body, _ := obj(obj(p, "body"), "storage")["value"].(string)
+			for _, r := range xref.IssueRefs(body, jiraURL) {
+				issueRefs[r.Key] = true
+			}
+		}
+	}
+	var out []string
+	kept := 0
+	for _, rel := range stale {
+		parts := strings.Split(filepath.ToSlash(rel), "/")
+		linked := false
+		if len(parts) == 3 && parts[0] == "jira" && parts[1] == "issues" {
+			linked = issueRefs[parts[2]]
+		}
+		if len(parts) == 3 && parts[0] == "confluence" && parts[1] == "pages" {
+			linked = pageIDs[parts[2]]
+			if !linked && len(pageTitles) > 0 {
+				var p map[string]any
+				if readJSONFile(filepath.Join(dir, rel, "page.json"), &p) == nil {
+					linked = pageTitles[fmt.Sprint(obj(p, "space")["key"])+"/"+strings.ToLower(fmt.Sprint(p["title"]))]
+				}
+			}
+		}
+		if linked {
+			kept++
+		} else {
+			out = append(out, rel)
+		}
+	}
+	return out, kept
 }
