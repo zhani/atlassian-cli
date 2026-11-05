@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## [v0.4.6](https://github.com/zhani/atlassian-cli/commits/v0.4.6) - 2026-11-05
 
 ### Confluence page browser
 - Jira issue lists on pages (the Jira issues macro with a query, a filter) show as a table of the issues they find, with the macro's columns and limit, as in the browser, when Jira is configured. Rich-text columns (description, environment, text-area custom fields) show formatted, as Jira renders them: alone when they are the only column (a `key = X` list showing an issue's description shows just that description), else after the table under each issue's key. `L` also offers the listed issues.
