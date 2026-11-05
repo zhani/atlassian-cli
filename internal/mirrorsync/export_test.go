@@ -17,6 +17,7 @@ import (
 	"github.com/zhani/atlassian-cli/internal/jira"
 	"github.com/zhani/atlassian-cli/internal/mirror"
 	"github.com/zhani/atlassian-cli/internal/xray"
+	"github.com/zhani/atlassian-cli/internal/xref"
 )
 
 func TestActiveSprintIDs(t *testing.T) {
@@ -303,8 +304,18 @@ func TestExportCrossRefs(t *testing.T) {
 		}
 		io.WriteString(w, body)
 	})
+	var listMax string
 	jm.HandleFunc("GET /rest/api/2/search", func(w http.ResponseWriter, r *http.Request) {
-		io.WriteString(w, `{"startAt":0,"maxResults":100,"total":1,"issues":[`+issues["P-1"]()+`]}`)
+		switch jql := r.URL.Query().Get("jql"); {
+		case strings.Contains(jql, "linkedIssues"): // an issue list on page 20
+			listMax = r.URL.Query().Get("maxResults")
+			io.WriteString(w, `{"startAt":0,"total":5,"issues":[{"key":"P-41","fields":{}},{"key":"P-40","fields":{}}]}`)
+		case strings.Contains(jql, "OTHER"):
+			w.WriteHeader(http.StatusBadRequest)
+			io.WriteString(w, `{"errorMessages":["The value 'OTHER' does not exist for the field 'project'."]}`)
+		default:
+			io.WriteString(w, `{"startAt":0,"maxResults":100,"total":1,"issues":[`+issues["P-1"]()+`]}`)
+		}
 	})
 	jsrv = httptest.NewServer(jm)
 	t.Cleanup(jsrv.Close)
@@ -328,7 +339,10 @@ func TestExportCrossRefs(t *testing.T) {
 		body := ""
 		if id == "20" {
 			body = `<ac:structured-macro ac:name=\"jira\"><ac:parameter ac:name=\"key\">P-30</ac:parameter></ac:structured-macro>` +
-				`<a href=\"` + jsrv.URL + `/browse/P-31\">P-31</a>`
+				`<a href=\"` + jsrv.URL + `/browse/P-31\">P-31</a>` +
+				`<ac:structured-macro ac:name=\"jira\"><ac:parameter ac:name=\"maximumIssues\">2</ac:parameter>` +
+				`<ac:parameter ac:name=\"jqlQuery\">issue in linkedIssues(&quot;P-1&quot;)  </ac:parameter></ac:structured-macro>` +
+				`<ac:structured-macro ac:name=\"jira\"><ac:parameter ac:name=\"jqlQuery\">project = OTHER</ac:parameter></ac:structured-macro>`
 		}
 		io.WriteString(w, page(id, body))
 	})
@@ -338,8 +352,9 @@ func TestExportCrossRefs(t *testing.T) {
 	jcfg := &config.AtlassianConfig{URL: jsrv.URL, Token: "x"}
 	ccfg := &config.AtlassianConfig{URL: csrv.URL, Token: "x"}
 	e := &Exporter{Jira: jira.NewClient(jcfg), JiraCfg: jcfg, Confluence: confluence.NewClient(ccfg), ConfCfg: ccfg}
+	out := filepath.Join(t.TempDir(), "m.tar.gz")
 	m, err := e.Export(context.Background(), ExportOptions{
-		Out: filepath.Join(t.TempDir(), "m.tar.gz"), Log: io.Discard, JQL: []string{"key = P-1"}, Pages: []string{"20"},
+		Out: out, Log: io.Discard, JQL: []string{"key = P-1"}, Pages: []string{"20"},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -352,7 +367,7 @@ func TestExportCrossRefs(t *testing.T) {
 	if e.pageDone["12"] {
 		t.Error("page 12 is linked from an issue that came in through a page: must not be exported")
 	}
-	for _, k := range []string{"P-1", "P-30", "P-31"} {
+	for _, k := range []string{"P-1", "P-30", "P-31", "P-40", "P-41"} {
 		if !e.done[k] {
 			t.Errorf("issue %s not exported", k)
 		}
@@ -360,7 +375,23 @@ func TestExportCrossRefs(t *testing.T) {
 	if e.done["P-32"] {
 		t.Error("P-32 is a relative of an issue on a page: must not be exported")
 	}
-	if m.Issues != 3 || m.Pages != 3 {
+	if m.Issues != 5 || m.Pages != 3 {
 		t.Errorf("manifest counts: %d issues, %d pages", m.Issues, m.Pages)
+	}
+	if listMax != "2" {
+		t.Errorf("issue list fetched %s issues, want the macro's maximumIssues 2", listMax)
+	}
+	// The page's issue lists as Jira answered them, failures included.
+	dir := t.TempDir()
+	if _, err := Import(out, dir, ImportOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	var lists []xref.QueryResult
+	if err := readJSONFile(filepath.Join(dir, "confluence", "pages", "20", "jira-queries.json"), &lists); err != nil {
+		t.Fatal(err)
+	}
+	if len(lists) != 2 || lists[0].JQL != `issue in linkedIssues("P-1")` || strings.Join(lists[0].Keys, ",") != "P-41,P-40" ||
+		lists[0].Total != 5 || lists[0].Error != "" || lists[1].Error == "" || len(lists[1].Keys) != 0 {
+		t.Errorf("jira-queries.json: %+v", lists)
 	}
 }

@@ -67,6 +67,7 @@ func pageTreeOptions(client *confluence.Client) tui.TreeOptions {
 		return opts
 	}
 	opts.IssueBases = []string{jc.BaseURL()}
+	opts.SearchIssues = jc.SearchRaw
 	opts.OpenIssue = func(ctx context.Context, key string) error {
 		jql := fmt.Sprintf("key = %q", key)
 		issues, err := jc.SearchIssuesAll(ctx, jql, nil, 1)

@@ -76,3 +76,30 @@ func TestStrings(t *testing.T) {
 		t.Fatalf("Strings = %q", got)
 	}
 }
+
+func TestIssueQueries(t *testing.T) {
+	storage := `<ac:structured-macro ac:name="jira" ac:schema-version="1"><ac:parameter ac:name="server">PSS Jira</ac:parameter>` +
+		`<ac:parameter ac:name="columnIds">issuekey,summary,customfield_11519</ac:parameter>` +
+		`<ac:parameter ac:name="columns">key,summary,Test Execution Status</ac:parameter>` +
+		`<ac:parameter ac:name="maximumIssues">1000</ac:parameter>` +
+		`<ac:parameter ac:name="jqlQuery">issue in linkedIssues(&quot;A-1&quot;)   AND type = Story   </ac:parameter></ac:structured-macro>` +
+		`<ac:structured-macro ac:name="jira"><ac:parameter ac:name="key">A-2</ac:parameter></ac:structured-macro>` +
+		`<ac:structured-macro ac:name="jira"><ac:parameter ac:name="jqlQuery">project = A</ac:parameter></ac:structured-macro>` +
+		`<ac:structured-macro ac:name="jira"><ac:parameter ac:name="jqlQuery">issue in linkedIssues("A-1") AND type = Story</ac:parameter></ac:structured-macro>`
+	got := IssueQueries(storage)
+	if len(got) != 2 {
+		t.Fatalf("got %d queries: %+v", len(got), got)
+	}
+	want := IssueQuery{JQL: `issue in linkedIssues("A-1")   AND type = Story`, Server: "PSS Jira", Max: 1000,
+		Columns: []string{"issuekey", "summary", "customfield_11519"}, Headers: []string{"key", "summary", "Test Execution Status"}}
+	if !reflect.DeepEqual(got[0], want) {
+		t.Fatalf("query:\n got %+v\nwant %+v", got[0], want)
+	}
+	if got[1].Max != 20 || got[1].Columns[0] != "issuekey" || got[1].Headers[2] != "type" {
+		t.Fatalf("defaults: %+v", got[1])
+	}
+	out := ReplaceIssueQueries(storage, func(q IssueQuery) string { return "[" + NormalizeJQL(q.JQL) + "]" })
+	if want := `[issue in linkedIssues("A-1") AND type = Story]<ac:structured-macro ac:name="jira"><ac:parameter ac:name="key">A-2</ac:parameter></ac:structured-macro>[project = A][issue in linkedIssues("A-1") AND type = Story]`; out != want {
+		t.Fatalf("ReplaceIssueQueries:\n got %s\nwant %s", out, want)
+	}
+}

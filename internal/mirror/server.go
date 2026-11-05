@@ -18,6 +18,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/zhani/atlassian-cli/internal/xref"
 )
 
 // Server holds a loaded mirror and serves it.
@@ -36,6 +38,9 @@ type Server struct {
 	boards   []boardData
 	jiraAtt  map[string]string // attachment ID -> file
 	remote   map[string]string // issue key -> remotelinks.json
+	// queries are the issue lists on pages as Jira answered them at export
+	// (jira-queries.json), by normalized JQL.
+	queries map[string]xref.QueryResult
 
 	pages     map[string]map[string]any
 	pageOrder []string
@@ -68,7 +73,8 @@ func Load(dir string) (*Server, error) {
 		Dir: dir, Manifest: *m,
 		issues: map[string]map[string]any{}, issueDir: map[string]string{},
 		names: map[string]string{}, byName: map[string][]string{}, jiraAtt: map[string]string{}, remote: map[string]string{},
-		pages: map[string]map[string]any{}, pageAtts: map[string][]map[string]any{}, pageDir: map[string]string{},
+		queries: map[string]xref.QueryResult{},
+		pages:   map[string]map[string]any{}, pageAtts: map[string][]map[string]any{}, pageDir: map[string]string{},
 		confFiles: map[string]string{}, urlFiles: map[string]string{}, xrayRuns: map[string]string{}, spaces: map[string]map[string]any{},
 		jiraBase: JiraBase, confBase: ConfluenceBase, now: time.Now,
 	}
@@ -195,6 +201,12 @@ func (s *Server) loadRoot(root string) error {
 		files, _ := os.ReadDir(filepath.Join(d, "files"))
 		for _, f := range files {
 			s.confFiles[f.Name()] = filepath.Join(d, "files", f.Name())
+		}
+		var queries []xref.QueryResult
+		if readJSON(filepath.Join(d, "jira-queries.json"), &queries) == nil {
+			for _, q := range queries {
+				s.queries[xref.NormalizeJQL(q.JQL)] = q
+			}
 		}
 		var urls map[string]string
 		if readJSON(filepath.Join(d, "urls.json"), &urls) == nil {
@@ -635,6 +647,21 @@ func (s *Server) userSearch(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) runJQL(w http.ResponseWriter, jql string) ([]map[string]any, bool) {
+	// An issue list on a page answers as Jira did at export: the mirror's
+	// JQL lacks linkedIssues(), ScriptRunner and Xray functions.
+	if q, ok := s.queries[xref.NormalizeJQL(jql)]; ok {
+		if q.Error != "" {
+			writeErr(w, http.StatusBadRequest, "at export: "+q.Error)
+			return nil, false
+		}
+		res := []map[string]any{}
+		for _, k := range q.Keys {
+			if is := s.issues[k]; is != nil {
+				res = append(res, is)
+			}
+		}
+		return res, true
+	}
 	res, err := s.SearchJQL(jql)
 	if err != nil {
 		writeErr(w, http.StatusBadRequest, err.Error())

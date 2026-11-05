@@ -43,8 +43,9 @@ func (r PageRef) Label() string {
 
 // IssueRef is a reference to a Jira issue.
 type IssueRef struct {
-	Key string
-	URL string // the link it came from; empty for a Jira issue macro
+	Key  string
+	URL  string // the link it came from; empty for a Jira issue macro
+	List bool   // found by an issue list (query) on the page, not named on it
 }
 
 // urlRe finds absolute URLs in HTML, Jira wiki markup ([text|url]) and
@@ -243,4 +244,113 @@ func isDigits(s string) bool {
 		}
 	}
 	return true
+}
+
+// IssueQuery is a Jira issues macro listing the result of a JQL query (a
+// filter): the issue table a page shows.
+type IssueQuery struct {
+	JQL     string   // as written in the macro, whitespace trimmed
+	Columns []string // field IDs ("issuekey", "summary", "customfield_123")
+	Headers []string // their headings as the macro names them
+	Max     int      // maximumIssues; 20 when the macro gives none
+	Server  string   // the Jira server's name in Confluence's application links
+}
+
+// Confluence's own defaults for a Jira issues macro without columns or a
+// limit.
+var (
+	defaultQueryColumns = []string{"issuekey", "summary", "issuetype", "created", "updated", "duedate", "assignee", "reporter", "priority", "status", "resolution"}
+	defaultQueryHeaders = []string{"key", "summary", "type", "created", "updated", "due", "assignee", "reporter", "priority", "status", "resolution"}
+)
+
+const defaultQueryMax = 20
+
+var macroParamRe = regexp.MustCompile(`(?s)<ac:parameter\s+ac:name="([^"]+)"\s*>(.*?)</ac:parameter>`)
+
+// issueQuery reads a Jira macro's body; false for a single-issue macro.
+func issueQuery(body string) (IssueQuery, bool) {
+	params := map[string]string{}
+	for _, p := range macroParamRe.FindAllStringSubmatch(body, -1) {
+		params[p[1]] = strings.TrimSpace(html.UnescapeString(p[2]))
+	}
+	q := IssueQuery{JQL: params["jqlQuery"], Server: params["server"], Max: defaultQueryMax}
+	if q.JQL == "" {
+		return q, false
+	}
+	if n, err := strconv.Atoi(params["maximumIssues"]); err == nil && n > 0 {
+		q.Max = n
+	}
+	ids, names := splitList(params["columnIds"]), splitList(params["columns"])
+	if len(ids) == 0 {
+		ids = names // older macros name the columns only
+	}
+	if len(ids) == 0 {
+		ids, names = defaultQueryColumns, defaultQueryHeaders
+	}
+	for i, id := range ids {
+		switch strings.ToLower(id) {
+		case "key":
+			id = "issuekey"
+		case "type":
+			id = "issuetype"
+		case "due":
+			id = "duedate"
+		}
+		name := id
+		if i < len(names) {
+			name = names[i]
+		}
+		q.Columns, q.Headers = append(q.Columns, id), append(q.Headers, name)
+	}
+	return q, true
+}
+
+func splitList(s string) []string {
+	var out []string
+	for _, p := range strings.Split(s, ",") {
+		if p = strings.TrimSpace(p); p != "" {
+			out = append(out, p)
+		}
+	}
+	return out
+}
+
+// IssueQueries lists the Jira issues macros of a page's storage format that
+// show a query's result, in order, each query once.
+func IssueQueries(storage string) []IssueQuery {
+	seen := map[string]bool{}
+	var out []IssueQuery
+	for _, m := range jiraMacroRe.FindAllStringSubmatch(storage, -1) {
+		if q, ok := issueQuery(m[1]); ok && !seen[NormalizeJQL(q.JQL)] {
+			seen[NormalizeJQL(q.JQL)] = true
+			out = append(out, q)
+		}
+	}
+	return out
+}
+
+// ReplaceIssueQueries replaces each query macro in storage by what render
+// returns for it; single-issue macros stay.
+func ReplaceIssueQueries(storage string, render func(IssueQuery) string) string {
+	return jiraMacroRe.ReplaceAllStringFunc(storage, func(macro string) string {
+		m := jiraMacroRe.FindStringSubmatch(macro)
+		if q, ok := issueQuery(m[1]); ok {
+			return render(q)
+		}
+		return macro
+	})
+}
+
+// NormalizeJQL is the form queries are matched by: whitespace collapsed.
+func NormalizeJQL(jql string) string {
+	return strings.Join(strings.Fields(jql), " ")
+}
+
+// QueryResult is a query's result as the export stores it beside a page
+// (jira-queries.json): the issue keys in Jira's order, or why it failed.
+type QueryResult struct {
+	JQL   string   `json:"jql"`
+	Keys  []string `json:"keys"`
+	Total int      `json:"total"`
+	Error string   `json:"error,omitempty"`
 }
