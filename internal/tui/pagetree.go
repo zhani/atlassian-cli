@@ -87,13 +87,16 @@ type (
 
 var treeKeys = struct {
 	expand, collapse, focus, refresh, images, issues key.Binding
+	prevSlide, nextSlide                             key.Binding
 }{
-	issues:   key.NewBinding(key.WithKeys("L"), key.WithHelp("L", "linked issues")),
-	expand:   key.NewBinding(key.WithKeys("enter", "l", "right"), key.WithHelp("enter/l", "expand")),
-	collapse: key.NewBinding(key.WithKeys("h", "left", "backspace"), key.WithHelp("h", "collapse")),
-	focus:    key.NewBinding(key.WithKeys("tab", "w"), key.WithHelp("tab", "switch pane")),
-	refresh:  key.NewBinding(key.WithKeys("ctrl+r", "f5"), key.WithHelp("ctrl+r", "reload page")),
-	images:   key.NewBinding(key.WithKeys("i"), key.WithHelp("i", "view images")),
+	prevSlide: key.NewBinding(key.WithKeys("["), key.WithHelp("[", "previous slide")),
+	nextSlide: key.NewBinding(key.WithKeys("]"), key.WithHelp("]", "next slide")),
+	issues:    key.NewBinding(key.WithKeys("L"), key.WithHelp("L", "linked issues")),
+	expand:    key.NewBinding(key.WithKeys("enter", "l", "right"), key.WithHelp("enter/l", "expand")),
+	collapse:  key.NewBinding(key.WithKeys("h", "left", "backspace"), key.WithHelp("h", "collapse")),
+	focus:     key.NewBinding(key.WithKeys("tab", "w"), key.WithHelp("tab", "switch pane")),
+	refresh:   key.NewBinding(key.WithKeys("ctrl+r", "f5"), key.WithHelp("ctrl+r", "reload page")),
+	images:    key.NewBinding(key.WithKeys("i"), key.WithHelp("i", "view images")),
 }
 
 type treeModel struct {
@@ -343,6 +346,7 @@ func (m treeModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		im := imgs[msg.idx]
 		im.img, im.err, im.loaded = msg.img, msg.err, true
+		im.slides, im.slide = msg.slides, 0
 		if m.shownID == msg.pageID {
 			m.showContent()
 		}
@@ -351,6 +355,10 @@ func (m treeModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case kittyReadyMsg:
 		imgs := m.images[msg.pageID]
 		if msg.err != nil || msg.idx >= len(imgs) {
+			return m, nil
+		}
+		if imgs[msg.idx].gen != msg.gen { // the slide was turned meanwhile
+			m.gfx.out.WriteSeqs(m.gfx.caps.Wrap(termimg.KittyDelete(msg.id), false)) //nolint:errcheck
 			return m, nil
 		}
 		imgs[msg.idx].kittyID, imgs[msg.idx].placed = msg.id, [2]int{msg.cols, msg.rows}
@@ -442,6 +450,10 @@ func (m treeModel) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	case key.Matches(msg, treeKeys.images):
 		return m.previewImages()
+	case key.Matches(msg, treeKeys.prevSlide):
+		return m.turnSlide(-1)
+	case key.Matches(msg, treeKeys.nextSlide):
+		return m.turnSlide(1)
 	case m.opts.Bookmarks != nil && key.Matches(msg, bookmarkKeys.toggle):
 		n := m.selected()
 		if n == nil || n.isSpace {
@@ -809,7 +821,7 @@ func (m treeModel) helpKeys() helpKeys {
 	return helpKeys{short: short, full: [][]key.Binding{
 		{keys.up, keys.down, keys.pageUp, keys.pageDown, keys.top, keys.bottom},
 		{treeKeys.expand, treeKeys.collapse, treeKeys.focus, paneKeys.left, paneKeys.right, treeKeys.refresh},
-		{treeKeys.images, treeKeys.issues, bookmarkKeys.toggle, bookmarkKeys.picker},
+		{treeKeys.images, treeKeys.prevSlide, treeKeys.nextSlide, treeKeys.issues, bookmarkKeys.toggle, bookmarkKeys.picker},
 		{keys.filter, keys.open, keys.copyURL, keys.help, keys.quit},
 	}}
 }

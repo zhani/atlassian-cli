@@ -62,10 +62,12 @@ func NewKittyID() uint32 {
 	return kittyHigh<<24 | kittyNext
 }
 
-// PreviewItem is one image of a preview.
+// PreviewItem is one image of a preview. Image may be nil when Load gives
+// it on first view (slides of a long deck are not all decoded up front).
 type PreviewItem struct {
 	Title string
 	Image *Image
+	Load  func() (*Image, error)
 }
 
 // Preview shows images one at a time on the whole screen until Esc or q;
@@ -142,11 +144,25 @@ const maxUpscale = 3
 
 // draw shows the current item; it returns the kitty image ID it created.
 func (p *Preview) draw(out io.Writer) (kittyID uint32) {
-	item := p.Items[p.Index]
+	item := &p.Items[p.Index]
 	cols, rows := 80, 24
 	if f, ok := out.(interface{ Fd() uintptr }); ok {
 		if c, r, err := term.GetSize(int(f.Fd())); err == nil {
 			cols, rows = c, r
+		}
+	}
+	if item.Image == nil {
+		var err error
+		if item.Load != nil {
+			item.Image, err = item.Load()
+		}
+		if item.Image == nil {
+			if err == nil {
+				err = fmt.Errorf("no image")
+			}
+			caption := fmt.Sprintf(" [%d/%d] %s: %v   n/p: next/previous · esc: back", p.Index+1, len(p.Items), item.Title, err)
+			io.WriteString(out, fmt.Sprintf("\x1b[H\x1b[2J\x1b[%d;1H\x1b[7m%s\x1b[0m", rows, caption)) //nolint:errcheck
+			return 0
 		}
 	}
 	cellW, cellH := CellSize()

@@ -322,3 +322,24 @@ func TestSizedSequencesFitTmuxBuffer(t *testing.T) {
 		t.Error("no limit expected outside tmux")
 	}
 }
+
+func TestPreviewLoadsItemsOnView(t *testing.T) {
+	data := pngOf(t, image.NewRGBA(image.Rect(0, 0, 20, 10)))
+	loads := 0
+	load := func() (*Image, error) { loads++; return Decode(data) }
+	p := &Preview{Caps: Caps{Preview: Blocks}, Items: []PreviewItem{
+		{Title: "one", Load: load},
+		{Title: "two", Load: func() (*Image, error) { return nil, fmt.Errorf("broken slide") }},
+		{Title: "three", Load: load},
+	}}
+	var out bytes.Buffer
+	p.SetStdin(strings.NewReader("n"))
+	p.SetStdout(&out)
+	p.Run() // draws one, moves to two, then input ends
+	if loads != 1 || p.Items[0].Image == nil || p.Items[2].Image != nil {
+		t.Errorf("only the items viewed are loaded: %d loads", loads)
+	}
+	if !strings.Contains(out.String(), "[2/3] two: broken slide") {
+		t.Errorf("a failed item shows its error: %q", out.String())
+	}
+}
