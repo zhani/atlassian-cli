@@ -1,6 +1,8 @@
 package tui
 
 import (
+	tea "github.com/charmbracelet/bubbletea"
+
 	"github.com/charmbracelet/bubbles/key"
 	"github.com/charmbracelet/bubbles/table"
 	"github.com/charmbracelet/bubbles/viewport"
@@ -16,7 +18,7 @@ var keys = keyMap{
 	detail:     key.NewBinding(key.WithKeys("enter", "v"), key.WithHelp("enter/v", "view")),
 	open:       key.NewBinding(key.WithKeys("o"), key.WithHelp("o", "open in browser")),
 	copyURL:    key.NewBinding(key.WithKeys("c"), key.WithHelp("c", "copy URL")),
-	copyKey:    key.NewBinding(key.WithKeys("ctrl+k"), key.WithHelp("ctrl+k", "copy key")),
+	copyKey:    key.NewBinding(key.WithKeys("C"), key.WithHelp("C", "copy key")), // not ctrl+k: tmux pane up
 	transition: key.NewBinding(key.WithKeys("m"), key.WithHelp("m", "move (transition)")),
 	refresh:    key.NewBinding(key.WithKeys("ctrl+r", "f5"), key.WithHelp("ctrl+r", "refresh")),
 	filter:     key.NewBinding(key.WithKeys("/"), key.WithHelp("/", "filter")),
@@ -35,12 +37,28 @@ var keys = keyMap{
 }
 
 // Pane focus in the two-pane views (page tree, explorers), as in vim and
-// tmux setups: ctrl+h the left pane, ctrl+l the right one.
+// tmux setups: ctrl+h the left pane, ctrl+l the right one. Past the edge,
+// and always for ctrl+j/ctrl+k (no view stacks panes), the tmux pane
+// beyond gets the focus (tmuxSelectPane). Filters keep ctrl+j/ctrl+k to
+// move between matches.
 var paneKeys = struct {
-	left, right key.Binding
+	left, right, up, down key.Binding
 }{
 	left:  key.NewBinding(key.WithKeys("ctrl+h"), key.WithHelp("ctrl+h", "left pane")),
 	right: key.NewBinding(key.WithKeys("ctrl+l"), key.WithHelp("ctrl+l", "right pane")),
+	up:    key.NewBinding(key.WithKeys("ctrl+k"), key.WithHelp("ctrl+k", "tmux pane up")),
+	down:  key.NewBinding(key.WithKeys("ctrl+j"), key.WithHelp("ctrl+j", "tmux pane down")),
+}
+
+// tmuxPaneKey moves to the tmux pane above or below for ctrl+k/ctrl+j.
+func tmuxPaneKey(msg tea.KeyMsg) (tea.Cmd, bool) {
+	switch {
+	case key.Matches(msg, paneKeys.up):
+		return tmuxSelectPane("U"), true
+	case key.Matches(msg, paneKeys.down):
+		return tmuxSelectPane("D"), true
+	}
+	return nil, false
 }
 
 // tableKeyMap adapts the shared movement bindings to the table component.

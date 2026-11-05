@@ -330,7 +330,7 @@ browser). Piped output is never interactive.
 | `/` | Fuzzy-find the loaded issues (fzf-style across all columns, best first): `↓`/`↑`, `ctrl+j`/`ctrl+k` or `ctrl+n`/`ctrl+p` move, `enter` opens the issue and keeps the list filtered, `esc` clears |
 | `m` | Transition (move) the issue |
 | `o` | Open in browser |
-| `c` / `ctrl+k` | Copy issue URL / key to the clipboard |
+| `c` / `C` | Copy issue URL / key to the clipboard |
 | `ctrl+r` / `F5` | Refresh |
 | `i` | Detail view: show the issue's images full screen — Xray evidence step by step, step attachments, image attachments (`n`/`p` next/previous, `q` back). The detail view also draws them in place (kitty placeholders, or coloured blocks elsewhere), like the Confluence browser, with images in the description and an Attachments list |
 | `l` | Detail view: follow a link — pick from the parent, epic, linked issues, subtasks, Xray tests covering it and issues mentioned in its text; `enter` opens it, `esc` walks back to where you came from. With Confluence configured the list also has the pages the issue links to (its "wiki page" remote links, page links in its description and comments): `enter` opens the page in the page browser, `q` there comes back |
@@ -367,6 +367,11 @@ bind-key -n 'C-l' if-shell "$is_vim" 'send-keys C-l' 'select-pane -R'
 ```
 
 Reload with `tmux source-file ~/.config/tmux/tmux.conf` (or your config path).
+As in vim, `ctrl+h`/`ctrl+l` at the edge of atlassian-cli move on to the next tmux
+pane: from the right pane of a two-pane view `ctrl+l` leaves it, from the left one
+`ctrl+h`; the one-pane issue and bookmark browsers pass both on. `ctrl+j`/`ctrl+k`
+always move to the tmux pane below/above, except in a filter, where they move
+between matches.
 Without it, `tab` still switches panes and `ctrl+n`/`ctrl+p` move in filters.
 
 ### Bookmarks
@@ -390,7 +395,7 @@ atlassian-cli bookmark path                # where the file is
 In the bookmark browser `enter` opens a bookmark in its view: an issue in the
 issue view, a query in the issue browser, a feature, epic or sprint as its
 issues, a page in the page tree. Quitting that view returns to the bookmarks.
-`o` opens the bookmark on the web, `c` / `ctrl+k` copy its link / key, `r`
+`o` opens the bookmark on the web, `c` / `C` copy its link / key, `r`
 renames, `d` deletes. `/` fuzzy-finds bookmarks (fzf-style, across kind,
 key/query, name and title; best match first): `↓`/`↑`, `ctrl+j`/`ctrl+k` or `ctrl+n`/`ctrl+p` move,
 `enter` opens the selected bookmark, `esc` goes back to the full list.

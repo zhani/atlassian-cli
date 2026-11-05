@@ -2,6 +2,7 @@ package tui
 
 import (
 	"context"
+	"fmt"
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -84,4 +85,65 @@ func TestFilterCtrlJK(t *testing.T) {
 	if m.table.Cursor() != 0 || m.filter.Value() != "issue" {
 		t.Errorf("issues: ctrl+k cursor %d value %q", m.table.Cursor(), m.filter.Value())
 	}
+}
+
+// Not parallel: it swaps tmuxSelectPane.
+func TestPaneKeysLeaveAtTheEdge(t *testing.T) {
+	var moves []string
+	orig := tmuxSelectPane
+	t.Cleanup(func() { tmuxSelectPane = orig })
+	tmuxSelectPane = func(dir string) tea.Cmd {
+		moves = append(moves, dir)
+		return nil
+	}
+	check := func(what string, want ...string) {
+		t.Helper()
+		if fmt.Sprint(moves) != fmt.Sprint(want) {
+			t.Errorf("%s: tmux moves %v, want %v", what, moves, want)
+		}
+		moves = nil
+	}
+
+	tree := newTree(context.Background(), TreeOptions{Source: &fakePages{}, Space: "DEV"}, plainRenderer)
+	tree = drainTree(tree, tree.Init())
+	for _, k := range []tea.KeyMsg{ctrlL, ctrlL, ctrlH, ctrlH, ctrlK, ctrlJ} {
+		next, _ := tree.Update(k)
+		tree = next.(treeModel)
+	}
+	check("page tree", "R", "L", "U", "D") // the second press of ctrl+h/l leaves
+
+	_, ex := newTestExplorer(t)
+	for _, k := range []tea.KeyMsg{ctrlL, ctrlL, ctrlH, ctrlH, ctrlK, ctrlJ} {
+		next, _ := ex.Update(k)
+		ex = next.(explorerModel)
+	}
+	check("explorer", "R", "L", "U", "D")
+
+	// The issue browser alone is one pane: both keys leave at once.
+	_, m := newHarness(t)
+	for _, k := range []tea.KeyMsg{ctrlL, ctrlH, ctrlK, ctrlJ} {
+		next, _ := m.Update(k)
+		m = next.(model)
+	}
+	check("issue browser", "R", "L", "U", "D")
+
+	// In a filter ctrl+h stays a backspace.
+	m = press(m, "/", "a", "b")
+	next, _ := m.Update(ctrlH)
+	if m = next.(model); m.filter.Value() != "a" {
+		t.Errorf("filter after ctrl+h: %q", m.filter.Value())
+	}
+	check("issue filter")
+
+	// The bookmark browser alone passes all four on; as a picker none.
+	bm := newBookmarkModel(BookmarkOptions{Store: seededStore(t)})
+	for _, k := range []tea.KeyMsg{ctrlL, ctrlH, ctrlK, ctrlJ} {
+		nb, _ := bm.Update(k)
+		bm = nb.(bookmarkModel)
+	}
+	check("bookmarks", "R", "L", "U", "D")
+	bm.embedded = true
+	nb, _ := bm.Update(ctrlJ)
+	_ = nb
+	check("bookmark picker")
 }

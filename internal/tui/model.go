@@ -378,6 +378,14 @@ func (m model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.help.ShowAll = !m.help.ShowAll
 		m.layout()
 		return m, nil
+	case key.Matches(msg, paneKeys.left):
+		return m, tmuxSelectPane("L") // one pane: the edge on both sides
+	case key.Matches(msg, paneKeys.right):
+		return m, tmuxSelectPane("R")
+	case key.Matches(msg, paneKeys.up):
+		return m, tmuxSelectPane("U")
+	case key.Matches(msg, paneKeys.down):
+		return m, tmuxSelectPane("D")
 	case key.Matches(msg, keys.refresh):
 		m.cache = map[string]*jira.Issue{}
 		m.imgCache = map[string][]termimg.PreviewItem{}

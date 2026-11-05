@@ -285,6 +285,13 @@ func (m bookmarkModel) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	}
 
 	m.status = ""
+	if !m.embedded { // as a picker it is an overlay: no tmux moves from there
+		for k, dir := range map[*key.Binding]string{&paneKeys.left: "L", &paneKeys.right: "R", &paneKeys.up: "U", &paneKeys.down: "D"} {
+			if key.Matches(msg, *k) {
+				return m, tmuxSelectPane(dir)
+			}
+		}
+	}
 	b, ok := m.selected()
 	switch {
 	case key.Matches(msg, keys.quit), m.embedded && key.Matches(msg, keys.back):

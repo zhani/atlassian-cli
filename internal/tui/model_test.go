@@ -204,7 +204,7 @@ func TestOpenAndCopy(t *testing.T) {
 	m = press(m, "j")
 	m = press(m, "o")
 	m = press(m, "c")
-	m = press(m, "ctrl+k")
+	m = press(m, "C")
 
 	if diff := cmp.Diff([]string{"https://jira.example.com/browse/PROJ-2"}, h.opened); diff != "" {
 		t.Errorf("opened diff (-want +got):\n%s", diff)
