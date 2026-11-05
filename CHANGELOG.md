@@ -1,5 +1,13 @@
 # Changelog
 
+## Unreleased
+
+### Confluence page browser
+- Jira issue lists on pages (the Jira issues macro with a query, a filter) show as a table of the issues they find, with the macro's columns and limit, as in the browser, when Jira is configured. Rich-text columns (description, environment, text-area custom fields) show formatted, as Jira renders them: alone when they are the only column (a `key = X` list showing an issue's description shows just that description), else after the table under each issue's key. `L` also offers the listed issues.
+
+### Offline mirror
+- `mirror export` runs the issue lists on the exported pages against Jira, exports their issues (up to each list's limit, at most 1000) and stores the results with the page (`jira-queries.json`). The mirror answers those queries as Jira did, so the lists show offline even when they use JQL the mirror can't evaluate (`linkedIssues()`, ScriptRunner, Xray functions).
+
 ## [v0.4.5](https://github.com/zhani/atlassian-cli/commits/v0.4.5) - 2026-11-05
 
 ### Offline mirror

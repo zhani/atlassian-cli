@@ -21,6 +21,8 @@
 //	confluence/pages/<id>/attachments.json  the page's attachment list
 //	confluence/pages/<id>/files/<att id>    attachment content
 //	confluence/pages/<id>/urls.json      site path -> file under urls/ (linked images)
+//	confluence/pages/<id>/jira-queries.json  the page's issue lists (Jira issues
+//	                                     macros) as Jira answered them: keys in order
 //	bookmarks.yaml                       the exporter's bookmarks
 //	local/                               the user's own additions, same layout;
 //	                                     loaded over the mirrored data, never

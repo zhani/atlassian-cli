@@ -108,7 +108,7 @@ func issuePageItems(issue *jira.Issue, bases []string) []linkItem {
 }
 
 // openIssueLinks opens the picker of the issues the shown page shows (Jira
-// issue macro) or links to.
+// issue macro), links to or lists (issue lists, after the others).
 func (m treeModel) openIssueLinks() (tea.Model, tea.Cmd) {
 	p := m.pages[m.shownID]
 	if p == nil {
@@ -122,6 +122,15 @@ func (m treeModel) openIssueLinks() (tea.Model, tea.Cmd) {
 	var refs []xref.IssueRef
 	if p.Body.Storage != nil {
 		refs = xref.IssueRefs(p.Body.Storage.Value, m.opts.IssueBases...)
+	}
+	named := map[string]bool{}
+	for _, r := range refs {
+		named[r.Key] = true
+	}
+	for _, k := range listedIssues(m.lists[p.ID]) {
+		if !named[k] {
+			refs = append(refs, xref.IssueRef{Key: k, List: true})
+		}
 	}
 	if len(refs) == 0 {
 		m.setStatus("No Jira issues on "+p.Title, false)
@@ -160,7 +169,10 @@ func (m treeModel) issueLinksView() string {
 	for i := start; i < min(len(m.issueLinks), start+rows); i++ {
 		r := m.issueLinks[i]
 		how := "issue macro"
-		if r.URL != "" {
+		switch {
+		case r.List:
+			how = "issue list"
+		case r.URL != "":
 			how = "link"
 		}
 		line := styleTitle.Render(r.Key) + "  " + styleDim.Render(how)

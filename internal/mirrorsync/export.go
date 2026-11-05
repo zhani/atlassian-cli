@@ -553,9 +553,31 @@ func (e *Exporter) exportQuery(ctx context.Context, jql string) error {
 		return nil
 	}
 	full := "(" + base + ")" + e.sinceClause() + " ORDER BY key ASC"
-	q := url.Values{"jql": {full}, "fields": {"*all"}, "expand": {"renderedFields,names"}, "maxResults": {"100"}}
 	n := 0
-	for start := 0; ; {
+	_, err := e.search(ctx, full, 0, func(is map[string]any) {
+		if err := e.storeIssue(ctx, is); err != nil {
+			e.warn("issue %v: %v", is["key"], err)
+		}
+		n++
+	})
+	if err != nil {
+		return err
+	}
+	e.logf("query %q: %d issues", truncate(base, 80), n)
+	return nil
+}
+
+// search calls each for every issue (all fields, rendered too) a query
+// finds, in its order, up to limit (0: all), and returns the total.
+func (e *Exporter) search(ctx context.Context, jql string, limit int, each func(map[string]any)) (int, error) {
+	q := url.Values{"jql": {jql}, "fields": {"*all"}, "expand": {"renderedFields,names"}}
+	n, total := 0, 0
+	for start := 0; limit == 0 || n < limit; {
+		size := 100
+		if limit > 0 {
+			size = min(size, limit-n)
+		}
+		q.Set("maxResults", strconv.Itoa(size))
 		var page struct {
 			Issues        []map[string]any `json:"issues"`
 			Total         int              `json:"total"`
@@ -569,12 +591,11 @@ func (e *Exporter) exportQuery(ctx context.Context, jql string) error {
 			q.Set("startAt", strconv.Itoa(start))
 		}
 		if err := e.get(ctx, path, q, &page); err != nil {
-			return err
+			return total, err
 		}
+		total = max(page.Total, n+len(page.Issues))
 		for _, is := range page.Issues {
-			if err := e.storeIssue(ctx, is); err != nil {
-				e.warn("issue %v: %v", is["key"], err)
-			}
+			each(is)
 		}
 		n += len(page.Issues)
 		start += len(page.Issues)
@@ -590,8 +611,7 @@ func (e *Exporter) exportQuery(ctx context.Context, jql string) error {
 			break
 		}
 	}
-	e.logf("query %q: %d issues", truncate(base, 80), n)
-	return nil
+	return total, nil
 }
 
 func (e *Exporter) exportKey(ctx context.Context, key string) error {
@@ -1118,8 +1138,63 @@ func (e *Exporter) exportCrossRefs(ctx context.Context, issues []string) int {
 		if len(keys) > 0 {
 			e.logf("issues on pages: %d referenced, %d exported", len(keys), added)
 		}
+		before = e.stats.issues
+		if n := e.exportPageQueries(ctx); n > 0 {
+			e.logf("issue lists on pages: %d queries, %d issues exported", n, e.stats.issues-before)
+		}
+		added += e.stats.issues - before
 	}
 	return added
+}
+
+// maxQueryIssues caps the issues exported for one issue list on a page
+// (the macro's own maximumIssues applies first).
+const maxQueryIssues = 1000
+
+// exportPageQueries runs the queries of the Jira issues macros (issue
+// lists) on the exported tree pages against Jira, exports the issues they
+// find and stores each page's results as jira-queries.json, so the lists
+// show offline even where the mirror's JQL can't evaluate the query
+// (linkedIssues(), ScriptRunner, Xray functions). It returns how many
+// queries it ran.
+func (e *Exporter) exportPageQueries(ctx context.Context) int {
+	results := map[string]xref.QueryResult{}
+	for _, id := range e.treePages {
+		dir := filepath.Join(e.stage, "confluence", "pages", id)
+		var p map[string]any
+		if err := readJSONFile(filepath.Join(dir, "page.json"), &p); err != nil {
+			continue
+		}
+		body, _ := obj(obj(p, "body"), "storage")["value"].(string)
+		var out []xref.QueryResult
+		for _, q := range xref.IssueQueries(body) {
+			norm := xref.NormalizeJQL(q.JQL)
+			r, ok := results[norm]
+			if !ok {
+				r = xref.QueryResult{JQL: norm, Keys: []string{}}
+				total, err := e.search(ctx, q.JQL, min(q.Max, maxQueryIssues), func(is map[string]any) {
+					key, _ := is["key"].(string)
+					r.Keys = append(r.Keys, key)
+					if err := e.storeIssue(ctx, is); err != nil {
+						e.warn("issue %s (in a list on page %s): %v", key, id, err)
+					}
+				})
+				r.Total = total
+				if err != nil {
+					r.Error = err.Error()
+					e.warn("page %s issue list %q: %v", id, truncate(norm, 80), err)
+				}
+				results[norm] = r
+			}
+			out = append(out, r)
+		}
+		if len(out) > 0 {
+			if err := writeJSONFile(filepath.Join(dir, "jira-queries.json"), out); err != nil {
+				e.warn("page %s: %v", id, err)
+			}
+		}
+	}
+	return len(results)
 }
 
 // issuePageRefs lists the Confluence pages an exported issue links to, in

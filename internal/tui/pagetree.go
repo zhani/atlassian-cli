@@ -50,6 +50,10 @@ type TreeOptions struct {
 	// disables L. IssueBases are the Jira base URLs issue links start with.
 	OpenIssue  func(ctx context.Context, key string) error
 	IssueBases []string
+
+	// SearchIssues runs the queries of the Jira issue lists on pages, which
+	// then show as tables; nil shows only their queries.
+	SearchIssues IssueSearcher
 }
 
 // treeLimit caps how many children are listed per node.
@@ -74,9 +78,10 @@ type (
 		err    error
 	}
 	pageContentMsg struct {
-		id   string
-		page *confluence.Page
-		err  error
+		id    string
+		page  *confluence.Page
+		lists map[string]issueList // the page's issue lists, by normalized JQL
+		err   error
 	}
 )
 
@@ -100,8 +105,9 @@ type treeModel struct {
 	cursor  int
 	offset  int
 	content viewport.Model
-	pages   map[string]*confluence.Page // loaded page content by ID
-	shownID string                      // page in the content pane
+	pages   map[string]*confluence.Page     // loaded page content by ID
+	lists   map[string]map[string]issueList // issue lists of loaded pages, by ID
+	shownID string                          // page in the content pane
 
 	gfx      *graphics               // image drawing; nil shows captions only
 	markdown map[string]string       // page markdown with image markers, by ID
@@ -144,7 +150,7 @@ func newTree(ctx context.Context, opts TreeOptions, render markdownRenderer) tre
 		ctx: ctx, opts: opts, render: render,
 		content:  vp,
 		pages:    map[string]*confluence.Page{},
-		markdown: map[string]string{}, images: map[string][]*pageImage{}, rendered: map[string]string{},
+		markdown: map[string]string{}, lists: map[string]map[string]issueList{}, images: map[string][]*pageImage{}, rendered: map[string]string{},
 		spinner: spinner.New(spinner.WithSpinner(spinner.Dot)),
 		filter:  newTreeFilterInput(),
 
@@ -190,10 +196,14 @@ func (m treeModel) loadChildren(n *treeNode) tea.Cmd {
 }
 
 func (m treeModel) loadPage(id string) tea.Cmd {
-	ctx, src := m.ctx, m.opts.Source
+	ctx, src, search := m.ctx, m.opts.Source, m.opts.SearchIssues
 	return func() tea.Msg {
 		p, err := src.GetPage(ctx, id, []string{"body.storage", "version", "space"})
-		return pageContentMsg{id: id, page: p, err: err}
+		msg := pageContentMsg{id: id, page: p, err: err}
+		if err == nil && p.Body.Storage != nil {
+			msg.lists = loadIssueLists(ctx, search, p.Body.Storage.Value)
+		}
+		return msg
 	}
 }
 
@@ -309,6 +319,7 @@ func (m treeModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		m.pages[msg.id] = msg.page
+		m.lists[msg.id] = msg.lists
 		m.preparePage(msg.page)
 		if m.shownID == msg.id {
 			m.showContent()
@@ -649,7 +660,7 @@ func (m *treeModel) showContent() {
 func (m *treeModel) preparePage(p *confluence.Page) string {
 	body := ""
 	if p.Body.Storage != nil {
-		body = htmlconv.Convert(p.Body.Storage.Value)
+		body = htmlconv.Convert(expandIssueLists(p.Body.Storage.Value, m.lists[p.ID]))
 	}
 	body, imgs := extractImages(body)
 	md := fmt.Sprintf("# %s\n\n_Version %d · %s_\n\n", p.Title, p.Version.Number, p.Version.When) + body
@@ -660,6 +671,7 @@ func (m *treeModel) preparePage(p *confluence.Page) string {
 // forgetPage drops a loaded page and everything derived from it.
 func (m *treeModel) forgetPage(id string) {
 	delete(m.pages, id)
+	delete(m.lists, id)
 	delete(m.markdown, id)
 	if m.gfx.kitty() {
 		for _, im := range m.images[id] {

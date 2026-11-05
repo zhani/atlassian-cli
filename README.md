@@ -406,7 +406,12 @@ YAML file you can edit, back up or sync.
 ### Confluence page browser
 
 `confluence browse [SPACE]` shows the page tree on the left and the selected
-page rendered on the right; child pages load when a page is expanded.
+page rendered on the right; child pages load when a page is expanded. With Jira
+configured, a Jira issue list on a page (the Jira issues macro with a query, a
+filter) shows as a table of the issues it finds, with the macro's columns and
+limit (at most 1000), as in the browser; without Jira, its query. Rich-text
+columns (description, text-area custom fields) show formatted: on their own
+when they are the list's only columns, else after the table under each key.
 
 | Key | Action |
 |-----|--------|
@@ -417,7 +422,7 @@ page rendered on the right; child pages load when a page is expanded.
 | `ctrl+h` / `ctrl+l` | Focus the tree (left) / the page (right) |
 | `/` | Fuzzy-find pages (the whole space is loaded in the background): `↓`/`↑`, `ctrl+j`/`ctrl+k` or `ctrl+n`/`ctrl+p` move between matches, `enter` jumps to the page, `esc` goes back |
 | `i` | View the page's images full screen |
-| `L` | Jira issues on the page (Jira issue macros, links to issues; with Jira configured): `enter` opens one in the issue browser, `q` there comes back |
+| `L` | Jira issues on the page (Jira issue macros, links to issues, then the issues of its issue lists; with Jira configured): `enter` opens one in the issue browser, `q` there comes back |
 | `b` | Bookmark the page (again: remove the bookmark) |
 | `B` | Bookmarks: jump to a bookmarked page |
 | `o` / `c` | Open the page in the browser / copy its URL |
@@ -532,7 +537,12 @@ descendants. Links between the two sides come along one step, so they open
 offline: the Confluence pages those issues link to (remote "wiki page" links,
 page links in any field: `viewpage.action?pageId=`, `/spaces/…/pages/N`,
 `/display/SPACE/Title`, tiny `/x/…` links) and the Jira issues those pages
-show (Jira issue macro) or link to — but nothing those bring in turn. Issues keep their rendered descriptions, all comments and their
+show (Jira issue macro) or link to — but nothing those bring in turn. The
+issue lists on those pages (Jira issues macros with a query) run against Jira
+at export: their issues are exported (up to each list's limit, at most 1000)
+and each page keeps its lists' results, so a list shows offline as Jira
+answered it, even for JQL the mirror can't evaluate (`linkedIssues()`,
+ScriptRunner, Xray functions); a list whose query failed shows the error. Issues keep their rendered descriptions, all comments and their
 attachments, and Xray tests their latest test runs (step results, comments)
 with all evidence and step attachments; pages keep their attachments and the images they link on the
 same site. The bookmark file and the field names come along too.

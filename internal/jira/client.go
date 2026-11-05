@@ -90,15 +90,29 @@ const searchPageSize = 100
 // Cloud uses the token-paginated /search/jql endpoint; Server/DC uses the
 // offset-paginated /search endpoint.
 func (c *Client) SearchIssuesAll(ctx context.Context, jql string, fields []string, limit int) ([]Issue, error) {
+	return searchAll[Issue](ctx, c, jql, fields, limit, nil)
+}
+
+// SearchRaw is SearchIssuesAll with the issues as decoded JSON, every field
+// as Jira sends it (for showing arbitrary columns), and expand (e.g.
+// "renderedFields").
+func (c *Client) SearchRaw(ctx context.Context, jql string, fields []string, limit int, expand ...string) ([]map[string]any, error) {
+	return searchAll[map[string]any](ctx, c, jql, fields, limit, expand)
+}
+
+func searchAll[T any](ctx context.Context, c *Client, jql string, fields []string, limit int, expand []string) ([]T, error) {
 	q := url.Values{}
 	q.Set("jql", jql)
+	if len(expand) > 0 {
+		q.Set("expand", strings.Join(expand, ","))
+	}
 	if len(fields) > 0 {
 		q.Set("fields", strings.Join(fields, ","))
 	} else {
 		q.Set("fields", "*navigable")
 	}
 
-	var issues []Issue
+	var issues []T
 	for {
 		pageSize := searchPageSize
 		if limit > 0 && limit-len(issues) < pageSize {
@@ -106,10 +120,14 @@ func (c *Client) SearchIssuesAll(ctx context.Context, jql string, fields []strin
 		}
 		q.Set("maxResults", strconv.Itoa(pageSize))
 
-		var page []Issue
+		var page []T
 		var done bool
 		if c.cloud {
-			var resp searchJQLResponse
+			var resp struct {
+				Issues        []T    `json:"issues"`
+				NextPageToken string `json:"nextPageToken"`
+				IsLast        bool   `json:"isLast"`
+			}
 			if err := c.http.Do(ctx, "GET", "/rest/api/2/search/jql", q, nil, &resp); err != nil {
 				return nil, err
 			}
@@ -118,7 +136,11 @@ func (c *Client) SearchIssuesAll(ctx context.Context, jql string, fields []strin
 			q.Set("nextPageToken", resp.NextPageToken)
 		} else {
 			q.Set("startAt", strconv.Itoa(len(issues)))
-			var resp SearchResult
+			var resp struct {
+				StartAt int `json:"startAt"`
+				Total   int `json:"total"`
+				Issues  []T `json:"issues"`
+			}
 			if err := c.http.Do(ctx, "GET", "/rest/api/2/search", q, nil, &resp); err != nil {
 				return nil, err
 			}

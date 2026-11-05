@@ -53,7 +53,10 @@ either direction, Xray test coverage), but not their own relatives. Links
 across the two sides come along one step too: the Confluence pages those
 issues link to (remote links, page links in any field) and the Jira issues
 the exported pages show (Jira issue macro) or link to, but nothing these
-bring in turn. Every issue and page carries its attachments.
+bring in turn. The issue lists on those pages (Jira issues macros with a
+query) run against Jira: their issues come along (up to each list's limit, at
+most 1000) and the page keeps the results, so the list shows offline as Jira
+answered it. Every issue and page carries its attachments.
 
 Without --since the archive is a full snapshot; with it, only issues and
 pages changed since then.

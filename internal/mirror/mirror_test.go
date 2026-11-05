@@ -334,3 +334,37 @@ func TestClientsThroughMirror(t *testing.T) {
 		t.Fatalf("attachments: %v %v", atts, err)
 	}
 }
+
+func TestStoredPageQueries(t *testing.T) {
+	dir := fixture(t)
+	write(t, filepath.Join(dir, "confluence", "pages", "101", "jira-queries.json"), []xref.QueryResult{
+		{JQL: `issue in linkedIssues("PROJ-1")`, Keys: []string{"PROJ-2", "PROJ-10", "GONE-1"}, Total: 3},
+		{JQL: `project = OTHER`, Keys: []string{}, Error: "400 The value 'OTHER' does not exist"},
+	})
+	for _, v := range []string{"JIRA_URL", "CONFLUENCE_URL", "ATLASSIAN_URL", "JIRA_PERSONAL_TOKEN"} {
+		t.Setenv(v, "")
+	}
+	t.Setenv("ATLASSIAN_MIRROR", dir)
+	jcfg, err := config.LoadJiraConfig()
+	if err != nil {
+		t.Fatal(err)
+	}
+	jc := jira.NewClient(jcfg)
+	ctx := context.Background()
+	// Answered as stored, in Jira's order, whitespace aside; issues not in
+	// the mirror are left out.
+	got, err := jc.SearchRaw(ctx, "issue in linkedIssues(\"PROJ-1\")\n  ", []string{"summary"}, 20)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if k := keys(got); strings.Join(k, ",") != "PROJ-2,PROJ-10" {
+		t.Fatalf("stored query: %v", k)
+	}
+	if _, err := jc.SearchRaw(ctx, "project = OTHER", nil, 20); err == nil || !strings.Contains(err.Error(), "does not exist") {
+		t.Fatalf("stored failure: %v", err)
+	}
+	// Other queries still run on the mirror's own JQL.
+	if got, err := jc.SearchRaw(ctx, "key = PROJ-3", nil, 20); err != nil || len(got) != 1 {
+		t.Fatalf("plain query: %v %v", got, err)
+	}
+}
