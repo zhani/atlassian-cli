@@ -105,14 +105,14 @@ func TestIssueQueries(t *testing.T) {
 }
 
 func TestStoragePageLinks(t *testing.T) {
-	storage := `<ac:link><ri:page ri:space-key="ACW" ri:content-title="Intro &amp; more" /></ac:link>` +
+	storage := `<ac:link><ri:page ri:space-key="OPS" ri:content-title="Intro &amp; more" /></ac:link>` +
 		`<ac:link><ri:page ri:content-title="Sibling"/></ac:link>` +
-		`<ac:link><ri:page ri:space-key="ACW" ri:content-title="Intro &amp; more" /></ac:link>` +
+		`<ac:link><ri:page ri:space-key="OPS" ri:content-title="Intro &amp; more" /></ac:link>` +
 		`<a href="https://wiki.example.com/pages/viewpage.action?pageId=42">x</a>` +
 		`<a href="https://other.example.com/pages/viewpage.action?pageId=43">y</a>`
 	got := StoragePageLinks(storage, "DOC", "https://wiki.example.com")
 	want := []PageRef{
-		{Space: "ACW", Title: "Intro & more"},
+		{Space: "OPS", Title: "Intro & more"},
 		{Space: "DOC", Title: "Sibling"},
 		{ID: "42", URL: "https://wiki.example.com/pages/viewpage.action?pageId=42"},
 	}

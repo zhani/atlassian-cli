@@ -137,7 +137,7 @@ func TestConvertViewPDF(t *testing.T) {
 	}
 }
 
-// The "Development" list of a real page: task ids/statuses must not leak as
+// A task list as Confluence stores it: task ids/statuses must not leak as
 // text, mentions and page links must render.
 func TestConvertTaskList(t *testing.T) {
 	t.Parallel()
@@ -150,7 +150,7 @@ func TestConvertTaskList(t *testing.T) {
 <ac:task>
 <ac:task-id>2461</ac:task-id>
 <ac:task-status>incomplete</ac:task-status>
-<ac:task-body><span><span>L</span>ink stories as defined in <ac:link><ri:page ri:space-key="ACW" ri:content-title="Feature intro" /></ac:link>. <ac:link><ri:user ri:userkey="k2" /></ac:link> </span></ac:task-body>
+<ac:task-body><span><span>L</span>ink stories as defined in <ac:link><ri:page ri:space-key="DEV" ri:content-title="Feature intro" /></ac:link>. <ac:link><ri:user ri:userkey="k2" /></ac:link> </span></ac:task-body>
 </ac:task>
 </ac:task-list><ul><li style="list-style-type: none;"><ac:task-list>
 <ac:task>
