@@ -11,6 +11,7 @@
 
 ### Confluence page browser
 - An embedded PDF (the `viewpdf` macro) shows as a slide show in place: `[`/`]` turn the pages, `i` shows every page full screen. Pages are rendered with `mutool` or `pdftoppm` and cached (`ATLASSIAN_SLIDES_CACHE`). `page get` shows the macro as an image link to the PDF.
+- The embeds file also applies to live pages: the browser shows a mapped embed (a Widget Connector showing a Google Slides deck, say) as `mirror export` would — a PDF as a slide show — reading the copy from disk, so the machine with the real Confluence connection sees the slides without exporting. The page on Confluence is not changed; an attachment of the same name on the page wins.
 
 ## [v0.4.6](https://github.com/zhani/atlassian-cli/commits/v0.4.6) - 2026-11-05
 

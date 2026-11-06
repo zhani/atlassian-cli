@@ -6,6 +6,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"os"
 	"regexp"
 	"strconv"
 	"strings"
@@ -157,6 +158,7 @@ func (m treeModel) fetchImages(pageID string, atts []confluence.Attachment) tea.
 	for _, a := range atts {
 		byName[a.Title] = a.Links["download"]
 	}
+	local := m.embedFiles[pageID]
 	var cmds []tea.Cmd
 	for i, im := range m.images[pageID] {
 		if i >= maxPageImages {
@@ -164,7 +166,7 @@ func (m treeModel) fetchImages(pageID string, atts []confluence.Attachment) tea.
 		}
 		ctx, idx, ref := m.ctx, i, im.src
 		cmds = append(cmds, func() tea.Msg {
-			data, err := downloadImage(ctx, src, ref, byName)
+			data, err := downloadImage(ctx, src, ref, byName, local)
 			if err != nil {
 				return imageLoadedMsg{pageID: pageID, idx: idx, err: err}
 			}
@@ -184,19 +186,27 @@ func (m treeModel) fetchImages(pageID string, atts []confluence.Attachment) tea.
 }
 
 // downloadImage fetches an attachment by filename or an image URL: URLs on
-// the Confluence site go through the authenticated client.
-func downloadImage(ctx context.Context, src ImageSource, ref string, attachments map[string]string) ([]byte, error) {
+// the Confluence site go through the authenticated client. A filename that
+// is no attachment of the page but the local copy of an embed (local, by
+// name) is read from disk.
+func downloadImage(ctx context.Context, src ImageSource, ref string, attachments, local map[string]string) ([]byte, error) {
 	var body io.ReadCloser
 	var err error
 	base := strings.TrimRight(src.BaseURL(), "/")
 	switch {
 	case isAttachmentRef(ref):
+		name := ref
 		link, ok := attachments[ref]
 		if !ok {
 			// Escaped where the filename has spaces (viewpdf).
-			if name, err := url.PathUnescape(ref); err == nil {
+			if n, err := url.PathUnescape(ref); err == nil {
+				name = n
 				link, ok = attachments[name]
 			}
+		}
+		if path, isLocal := local[name]; !ok && isLocal {
+			body, err = os.Open(path)
+			break
 		}
 		if !ok || link == "" {
 			return nil, fmt.Errorf("attachment not found")

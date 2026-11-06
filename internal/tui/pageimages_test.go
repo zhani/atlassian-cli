@@ -9,11 +9,13 @@ import (
 	"image/png"
 	"io"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/zhani/atlassian-cli/internal/confluence"
+	"github.com/zhani/atlassian-cli/internal/embeds"
 	"github.com/zhani/atlassian-cli/internal/termimg"
 )
 
@@ -238,6 +240,74 @@ func TestPageSlideShow(t *testing.T) {
 	m2, _ := openImagePage(t, &graphics{caps: termimg.Caps{InPage: termimg.Blocks, Preview: termimg.Blocks}, cellW: 8, cellH: 16})
 	if s := key(m2, "]").status; s != "No slides on this page" {
 		t.Errorf("status %q", s)
+	}
+}
+
+// widgetPages serves a live page embedding a Google Slides deck through
+// the Widget Connector; atts are the page's attachments.
+type widgetPages struct {
+	imagePages
+	atts []confluence.Attachment
+}
+
+func (f *widgetPages) GetPage(_ context.Context, id string, _ []string) (*confluence.Page, error) {
+	return &confluence.Page{ID: id, Title: "Page " + id, Body: confluence.PageBody{Storage: &confluence.BodyContent{Value: `<p>Deck</p>` +
+		`<ac:structured-macro ac:name="widget"><ac:parameter ac:name="url"><ri:url ri:value="https://docs.google.com/presentation/d/DECKID/edit" /></ac:parameter></ac:structured-macro>`}}}, nil
+}
+
+func (f *widgetPages) GetAttachments(context.Context, string) ([]confluence.Attachment, error) {
+	return f.atts, nil
+}
+
+func (f *widgetPages) DownloadAttachment(_ context.Context, path string) (io.ReadCloser, error) {
+	f.record("download " + path)
+	return io.NopCloser(strings.NewReader("%PDF-1.4 attached")), nil
+}
+
+func TestPageEmbedsLive(t *testing.T) {
+	file := filepath.Join(t.TempDir(), "Intro deck.pdf")
+	if err := os.WriteFile(file, []byte("%PDF-1.4 local"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	var rendered []string
+	t.Cleanup(func() { renderSlides = pdfslidesRender })
+	renderSlides = func(_ context.Context, pdf []byte) ([][]byte, error) {
+		rendered = append(rendered, string(pdf))
+		var buf bytes.Buffer
+		png.Encode(&buf, image.NewRGBA(image.Rect(0, 0, 64, 36)))
+		return [][]byte{buf.Bytes(), buf.Bytes()}, nil
+	}
+	open := func(src *widgetPages, list []embeds.Embed) treeModel {
+		m := newTree(context.Background(), TreeOptions{Source: src, Space: "DEV", Embeds: list}, plainRenderer)
+		m.gfx = &graphics{caps: termimg.Caps{InPage: termimg.Blocks, Preview: termimg.Blocks}, cellW: 8, cellH: 16}
+		return drainTree(m, m.Init())
+	}
+	list := []embeds.Embed{{URL: "DECKID", File: file}}
+
+	src := &widgetPages{}
+	m := open(src, list)
+	if v := m.content.View(); !strings.Contains(v, "▣ slide 1/2: Intro deck.pdf") {
+		t.Fatalf("the local copy must show as slides in place of the widget:\n%s", v)
+	}
+	if len(rendered) != 1 || rendered[0] != "%PDF-1.4 local" {
+		t.Errorf("rendered %q, want the local file", rendered)
+	}
+	if strings.Contains(strings.Join(src.calls, ","), "download") {
+		t.Errorf("nothing must be downloaded: %v", src.calls)
+	}
+
+	// An attachment of the same name on the page wins, as in mirror export.
+	rendered = nil
+	src = &widgetPages{atts: []confluence.Attachment{{Title: "Intro deck.pdf", Links: map[string]string{"download": "/download/deck.pdf"}}}}
+	open(src, list)
+	if len(rendered) != 1 || rendered[0] != "%PDF-1.4 attached" {
+		t.Errorf("rendered %q, want the attachment", rendered)
+	}
+
+	// Without a mapping the widget stays.
+	rendered = nil
+	if v := open(&widgetPages{}, nil).content.View(); strings.Contains(v, "slide") || len(rendered) != 0 {
+		t.Errorf("an unmapped widget must not become slides:\n%s", v)
 	}
 }
 
