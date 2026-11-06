@@ -51,8 +51,11 @@ type Version struct {
 
 type User struct {
 	Type        string `json:"type"`
-	AccountID   string `json:"accountId"`
+	AccountID   string `json:"accountId,omitempty"`
+	UserKey     string `json:"userKey,omitempty"`
+	Username    string `json:"username,omitempty"`
 	DisplayName string `json:"displayName"`
+	Email       string `json:"email,omitempty"`
 }
 
 type Links struct {

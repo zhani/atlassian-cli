@@ -368,3 +368,33 @@ func TestStoredPageQueries(t *testing.T) {
 		t.Fatalf("plain query: %v %v", got, err)
 	}
 }
+
+func TestMentionedUsers(t *testing.T) {
+	dir := fixture(t)
+	p := map[string]any{"id": "102", "type": "page", "title": "Kick-off", "space": map[string]any{"key": "DOC"},
+		"body": map[string]any{"storage": map[string]any{"value": `<p><ac:link><ri:user ri:userkey="k1" /></ac:link></p>`}}}
+	p["history"] = map[string]any{"createdBy": map[string]any{"userKey": "k2", "username": "author", "displayName": "Author"}}
+	write(t, filepath.Join(dir, "confluence", "pages", "102", "page.json"), p)
+	write(t, filepath.Join(dir, "confluence", "pages", "102", "users.json"), []any{
+		map[string]any{"userKey": "k1", "username": "jdoe", "displayName": "Doe, Jane", "email": "jane@example.com"},
+	})
+	for _, v := range []string{"JIRA_URL", "CONFLUENCE_URL", "ATLASSIAN_URL", "CONFLUENCE_PERSONAL_TOKEN"} {
+		t.Setenv(v, "")
+	}
+	t.Setenv("ATLASSIAN_MIRROR", dir)
+	cfg, err := config.LoadConfluenceConfig()
+	if err != nil {
+		t.Fatal(err)
+	}
+	cc := confluence.NewClient(cfg)
+	ctx := context.Background()
+	if u, err := cc.GetUser(ctx, "key", "k1"); err != nil || u.DisplayName != "Doe, Jane" || u.Email != "jane@example.com" {
+		t.Fatalf("mentioned user: %+v %v", u, err)
+	}
+	if u, err := cc.GetUser(ctx, "username", "author"); err != nil || u.DisplayName != "Author" {
+		t.Fatalf("author: %+v %v", u, err)
+	}
+	if _, err := cc.GetUser(ctx, "key", "nobody"); err == nil {
+		t.Fatal("unknown user found")
+	}
+}

@@ -50,6 +50,9 @@ type Server struct {
 	urlFiles  map[string]string // site path -> file (Confluence images, Xray evidence)
 	xrayRuns  map[string]string // Xray test run ID -> testrun-<id>.json
 	spaces    map[string]map[string]any
+	// users are the Confluence users met in the mirror, by "key:<userKey>",
+	// "username:<name>" and "accountId:<id>".
+	users map[string]map[string]any
 
 	jiraMux, confMux   *http.ServeMux
 	jiraBase, confBase string // what the original URLs are rewritten to
@@ -76,6 +79,7 @@ func Load(dir string) (*Server, error) {
 		queries: map[string]xref.QueryResult{},
 		pages:   map[string]map[string]any{}, pageAtts: map[string][]map[string]any{}, pageDir: map[string]string{},
 		confFiles: map[string]string{}, urlFiles: map[string]string{}, xrayRuns: map[string]string{}, spaces: map[string]map[string]any{},
+		users:    map[string]map[string]any{},
 		jiraBase: JiraBase, confBase: ConfluenceBase, now: time.Now,
 	}
 	for _, root := range []string{dir, filepath.Join(dir, "local")} {
@@ -198,6 +202,14 @@ func (s *Server) loadRoot(root string) error {
 		var atts []map[string]any
 		_ = readJSON(filepath.Join(d, "attachments.json"), &atts)
 		s.pageAtts[id] = atts
+		// Authors and editors come with pages and attachments; users.json
+		// adds the mentioned ones and wins, being fetched for this purpose.
+		s.addUsers(p, false)
+		s.addUsers(atts, false)
+		var users []map[string]any
+		if readJSON(filepath.Join(d, "users.json"), &users) == nil {
+			s.addUsers(users, true)
+		}
 		files, _ := os.ReadDir(filepath.Join(d, "files"))
 		for _, f := range files {
 			s.confFiles[f.Name()] = filepath.Join(d, "files", f.Name())
@@ -221,6 +233,52 @@ func (s *Server) loadRoot(root string) error {
 		}
 	}
 	return nil
+}
+
+// addUsers indexes every Confluence user object (one with a displayName and
+// a userKey, username or accountId) in v.
+func (s *Server) addUsers(v any, override bool) {
+	switch v := v.(type) {
+	case map[string]any:
+		if name := str(v["displayName"]); name != "" {
+			// field -> /rest/api/user query parameter
+			for k, key := range map[string]string{"userKey": "key", "username": "username", "accountId": "accountId"} {
+				id := str(v[k])
+				if id == "" {
+					continue
+				}
+				if _, seen := s.users[key+":"+id]; override || !seen {
+					s.users[key+":"+id] = v
+				}
+			}
+		}
+		for _, c := range v {
+			s.addUsers(c, override)
+		}
+	case []any:
+		for _, c := range v {
+			s.addUsers(c, override)
+		}
+	case []map[string]any:
+		for _, c := range v {
+			s.addUsers(c, override)
+		}
+	}
+}
+
+// getUser serves /rest/api/user?key=|username=|accountId=.
+func (s *Server) getUser(w http.ResponseWriter, r *http.Request) {
+	for _, k := range []string{"key", "username", "accountId"} {
+		if id := r.URL.Query().Get(k); id != "" {
+			if u, ok := s.users[k+":"+id]; ok {
+				s.writeJSON(w, u)
+				return
+			}
+			notFound(w, "user "+id)
+			return
+		}
+	}
+	notFound(w, "user")
 }
 
 // --- transport ---
@@ -405,6 +463,7 @@ func (s *Server) routes() {
 	c.HandleFunc("GET /rest/api/content/{id}/version", s.pageVersions)
 	c.HandleFunc("GET /rest/experimental/content/{id}/version", s.pageVersions)
 	c.HandleFunc("GET /rest/api/content/{id}/label", s.pageLabels)
+	c.HandleFunc("GET /rest/api/user", s.getUser)
 	c.HandleFunc("GET /rest/api/content/{id}/restriction", func(w http.ResponseWriter, _ *http.Request) {
 		s.writeJSON(w, map[string]any{"results": []any{}, "size": 0})
 	})

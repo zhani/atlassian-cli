@@ -126,6 +126,14 @@ func (c *Client) GetVersions(ctx context.Context, pageID string, limit int) ([]V
 	return versions, err
 }
 
+// GetUser looks a user up by "key" (Server/DC user key), "username" or
+// "accountId" (Cloud).
+func (c *Client) GetUser(ctx context.Context, by, value string) (*User, error) {
+	var u User
+	err := c.http.Do(ctx, "GET", "/rest/api/user", url.Values{by: {value}}, nil, &u)
+	return &u, err
+}
+
 // BaseURL returns the Confluence base URL.
 func (c *Client) BaseURL() string { return c.http.BaseURL() }
 

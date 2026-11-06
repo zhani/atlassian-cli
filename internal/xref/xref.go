@@ -354,3 +354,41 @@ type QueryResult struct {
 	Total int      `json:"total"`
 	Error string   `json:"error,omitempty"`
 }
+
+var (
+	riPageRe   = regexp.MustCompile(`<ri:page\s([^>]*?)/?>`)
+	riSpaceRe  = regexp.MustCompile(`ri:space-key="([^"]*)"`)
+	riTitleRe  = regexp.MustCompile(`ri:content-title="([^"]*)"`)
+	riPageIDRe = regexp.MustCompile(`ri:content-id="([^"]*)"`)
+)
+
+// StoragePageLinks returns the pages a page's storage links to, in order,
+// each once: page links (<ri:page>, whose space defaults to space) and
+// links to page URLs under bases.
+func StoragePageLinks(storage, space string, bases ...string) []PageRef {
+	seen := map[string]bool{}
+	var out []PageRef
+	add := func(r PageRef) {
+		if (r.ID != "" || r.Title != "") && !seen[r.Key()] {
+			seen[r.Key()] = true
+			out = append(out, r)
+		}
+	}
+	for _, m := range riPageRe.FindAllStringSubmatch(storage, -1) {
+		attr := func(re *regexp.Regexp) string {
+			if a := re.FindStringSubmatch(m[1]); a != nil {
+				return html.UnescapeString(a[1])
+			}
+			return ""
+		}
+		r := PageRef{ID: attr(riPageIDRe), Space: attr(riSpaceRe), Title: attr(riTitleRe)}
+		if r.Space == "" {
+			r.Space = space
+		}
+		add(r)
+	}
+	for _, r := range PageRefs(storage, bases...) {
+		add(r)
+	}
+	return out
+}

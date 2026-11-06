@@ -103,3 +103,25 @@ func TestIssueQueries(t *testing.T) {
 		t.Fatalf("ReplaceIssueQueries:\n got %s\nwant %s", out, want)
 	}
 }
+
+func TestStoragePageLinks(t *testing.T) {
+	storage := `<ac:link><ri:page ri:space-key="ACW" ri:content-title="Intro &amp; more" /></ac:link>` +
+		`<ac:link><ri:page ri:content-title="Sibling"/></ac:link>` +
+		`<ac:link><ri:page ri:space-key="ACW" ri:content-title="Intro &amp; more" /></ac:link>` +
+		`<a href="https://wiki.example.com/pages/viewpage.action?pageId=42">x</a>` +
+		`<a href="https://other.example.com/pages/viewpage.action?pageId=43">y</a>`
+	got := StoragePageLinks(storage, "DOC", "https://wiki.example.com")
+	want := []PageRef{
+		{Space: "ACW", Title: "Intro & more"},
+		{Space: "DOC", Title: "Sibling"},
+		{ID: "42", URL: "https://wiki.example.com/pages/viewpage.action?pageId=42"},
+	}
+	if len(got) != len(want) {
+		t.Fatalf("got %+v", got)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Errorf("%d: got %+v, want %+v", i, got[i], want[i])
+		}
+	}
+}

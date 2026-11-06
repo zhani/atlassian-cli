@@ -14,6 +14,7 @@ import (
 
 	"github.com/zhani/atlassian-cli/internal/config"
 	"github.com/zhani/atlassian-cli/internal/confluence"
+	"github.com/zhani/atlassian-cli/internal/htmlconv"
 	"github.com/zhani/atlassian-cli/internal/jira"
 	"github.com/zhani/atlassian-cli/internal/mirror"
 	"github.com/zhani/atlassian-cli/internal/xray"
@@ -393,5 +394,30 @@ func TestExportCrossRefs(t *testing.T) {
 	if len(lists) != 2 || lists[0].JQL != `issue in linkedIssues("P-1")` || strings.Join(lists[0].Keys, ",") != "P-41,P-40" ||
 		lists[0].Total != 5 || lists[0].Error != "" || lists[1].Error == "" || len(lists[1].Keys) != 0 {
 		t.Errorf("jira-queries.json: %+v", lists)
+	}
+}
+
+func TestMentionedUsers(t *testing.T) {
+	calls := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		if r.URL.Path != "/rest/api/user" || r.URL.Query().Get("key") != "k1" {
+			http.NotFound(w, r)
+			return
+		}
+		io.WriteString(w, `{"userKey":"k1","username":"jdoe","displayName":"Doe, Jane","email":"jane@example.com"}`)
+	}))
+	t.Cleanup(srv.Close)
+	cfg := &config.AtlassianConfig{URL: srv.URL, Token: "x"}
+	e := &Exporter{Confluence: confluence.NewClient(cfg), ConfCfg: cfg, opts: ExportOptions{Log: io.Discard}, users: map[htmlconv.UserRef]map[string]any{}}
+	storage := `<ac:link><ri:user ri:userkey="k1" /></ac:link> <ac:link><ri:user ri:userkey="gone" /></ac:link>`
+	for range 2 { // the second page reuses the lookups
+		users := e.mentionedUsers(context.Background(), "1", storage)
+		if len(users) != 1 || users[0]["email"] != "jane@example.com" {
+			t.Fatalf("users: %v", users)
+		}
+	}
+	if calls != 2 {
+		t.Errorf("%d lookups, want 2", calls)
 	}
 }

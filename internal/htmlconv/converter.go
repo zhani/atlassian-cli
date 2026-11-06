@@ -8,8 +8,31 @@ import (
 	"golang.org/x/net/html"
 )
 
+// UserRef identifies the user of a mention (<ri:user>): Server/DC pages name
+// the user key, Cloud pages the account ID, old pages the username.
+type UserRef struct {
+	Key, AccountID, Username string
+}
+
+// User is a resolved mention.
+type User struct {
+	DisplayName, Email string
+}
+
+// Options tunes Convert.
+type Options struct {
+	// User resolves a mention; nil, or ok false, leaves it as @username
+	// (or "@unknown user"), since storage carries no names.
+	User func(ref UserRef) (u User, ok bool)
+}
+
 // Convert transforms HTML (including Confluence storage format) into GitHub-flavored Markdown.
 func Convert(htmlStr string) string {
+	return ConvertWith(htmlStr, Options{})
+}
+
+// ConvertWith is Convert with mentions resolved through opts.
+func ConvertWith(htmlStr string, opts Options) string {
 	if htmlStr == "" {
 		return ""
 	}
@@ -20,17 +43,50 @@ func Convert(htmlStr string) string {
 	}
 
 	var b strings.Builder
-	walkNode(&b, doc)
+	c := converter{opts: opts}
+	c.walkNode(&b, doc)
 	return strings.TrimSpace(b.String())
 }
 
-func walkNode(b *strings.Builder, n *html.Node) {
+// Mentions lists the users the storage mentions, each once.
+func Mentions(storageXHTML string) []UserRef {
+	doc, err := html.Parse(strings.NewReader(storageXHTML))
+	if err != nil {
+		return nil
+	}
+	var out []UserRef
+	seen := map[UserRef]bool{}
+	var walk func(n *html.Node)
+	walk = func(n *html.Node) {
+		if n.Type == html.ElementNode && n.Data == "ri:user" {
+			if r := userRef(n); r != (UserRef{}) && !seen[r] {
+				seen[r] = true
+				out = append(out, r)
+			}
+		}
+		for c := n.FirstChild; c != nil; c = c.NextSibling {
+			walk(c)
+		}
+	}
+	walk(doc)
+	return out
+}
+
+func userRef(n *html.Node) UserRef {
+	return UserRef{Key: getAttr(n, "ri:userkey"), AccountID: getAttr(n, "ri:account-id"), Username: getAttr(n, "ri:username")}
+}
+
+type converter struct {
+	opts Options
+}
+
+func (cv converter) walkNode(b *strings.Builder, n *html.Node) {
 	switch n.Type {
 	case html.TextNode:
 		b.WriteString(strings.ReplaceAll(n.Data, " ", " "))
 		return
 	case html.ElementNode:
-		renderElement(b, n)
+		cv.renderElement(b, n)
 		return
 	case html.CommentNode:
 		// The HTML parser reads storage-format CDATA sections (used for code
@@ -42,36 +98,40 @@ func walkNode(b *strings.Builder, n *html.Node) {
 	}
 
 	for c := n.FirstChild; c != nil; c = c.NextSibling {
-		walkNode(b, c)
+		cv.walkNode(b, c)
 	}
 }
 
-func renderElement(b *strings.Builder, n *html.Node) {
+func (cv converter) renderElement(b *strings.Builder, n *html.Node) {
 	tag := n.Data
 
 	// Handle Confluence storage format macros
 	if tag == "ac:structured-macro" {
-		renderMacro(b, n)
+		cv.renderMacro(b, n)
 		return
 	}
 	if tag == "ac:link" {
-		renderACLink(b, n)
+		cv.renderACLink(b, n)
 		return
 	}
 	if tag == "ac:image" {
-		renderACImage(b, n)
+		cv.renderACImage(b, n)
 		return
 	}
 	if tag == "ac:emoticon" {
-		walkChildren(b, n) // parser may absorb following text nodes as children
+		cv.walkChildren(b, n) // parser may absorb following text nodes as children
+		return
+	}
+	if tag == "ac:task-list" {
+		cv.renderTaskList(b, n)
 		return
 	}
 	if tag == "ac:plain-text-body" || tag == "ac:rich-text-body" {
-		walkChildren(b, n)
+		cv.walkChildren(b, n)
 		return
 	}
 	if strings.HasPrefix(tag, "ac:") || strings.HasPrefix(tag, "ri:") {
-		walkChildren(b, n)
+		cv.walkChildren(b, n)
 		return
 	}
 
@@ -79,59 +139,59 @@ func renderElement(b *strings.Builder, n *html.Node) {
 	case "h1", "h2", "h3", "h4", "h5", "h6":
 		level := map[string]string{"h1": "#", "h2": "##", "h3": "###", "h4": "####", "h5": "#####", "h6": "######"}[tag]
 		var inner strings.Builder
-		walkChildren(&inner, n)
+		cv.walkChildren(&inner, n)
 		b.WriteString("\n")
 		b.WriteString(level)
 		b.WriteString(" ")
 		b.WriteString(strings.TrimSpace(inner.String()))
 		b.WriteString("\n\n")
 	case "p":
-		walkChildren(b, n)
+		cv.walkChildren(b, n)
 		b.WriteString("\n\n")
 	case "br":
 		b.WriteString("\n")
 	case "strong", "b":
 		b.WriteString("**")
-		walkChildren(b, n)
+		cv.walkChildren(b, n)
 		b.WriteString("**")
 	case "em", "i":
 		b.WriteString("*")
-		walkChildren(b, n)
+		cv.walkChildren(b, n)
 		b.WriteString("*")
 	case "s", "del", "strike":
 		b.WriteString("~~")
-		walkChildren(b, n)
+		cv.walkChildren(b, n)
 		b.WriteString("~~")
 	case "code":
 		b.WriteString("`")
-		walkChildren(b, n)
+		cv.walkChildren(b, n)
 		b.WriteString("`")
 	case "pre":
 		b.WriteString("\n```\n")
-		walkChildren(b, n)
+		cv.walkChildren(b, n)
 		b.WriteString("\n```\n\n")
 	case "a":
 		href := getAttr(n, "href")
 		b.WriteString("[")
-		walkChildren(b, n)
+		cv.walkChildren(b, n)
 		b.WriteString("](")
 		b.WriteString(href)
 		b.WriteString(")")
 	case "ul":
 		b.WriteString("\n")
-		renderList(b, n, false)
+		cv.renderList(b, n, false)
 		b.WriteString("\n")
 	case "ol":
 		b.WriteString("\n")
-		renderList(b, n, true)
+		cv.renderList(b, n, true)
 		b.WriteString("\n")
 	case "li":
-		walkChildren(b, n)
+		cv.walkChildren(b, n)
 	case "table":
-		renderTable(b, n)
+		cv.renderTable(b, n)
 	case "blockquote":
 		var inner strings.Builder
-		walkChildren(&inner, n)
+		cv.walkChildren(&inner, n)
 		for _, line := range strings.Split(strings.TrimSpace(inner.String()), "\n") {
 			b.WriteString("> ")
 			b.WriteString(line)
@@ -149,11 +209,11 @@ func renderElement(b *strings.Builder, n *html.Node) {
 		b.WriteString(src)
 		b.WriteString(")")
 	default:
-		walkChildren(b, n)
+		cv.walkChildren(b, n)
 	}
 }
 
-func renderMacro(b *strings.Builder, n *html.Node) {
+func (cv converter) renderMacro(b *strings.Builder, n *html.Node) {
 	macroName := getAttr(n, "ac:name")
 
 	switch macroName {
@@ -162,7 +222,7 @@ func renderMacro(b *strings.Builder, n *html.Node) {
 		b.WriteString("\n```")
 		b.WriteString(lang)
 		b.WriteString("\n")
-		body := getMacroBody(n)
+		body := cv.getMacroBody(n)
 		b.WriteString(body)
 		if !strings.HasSuffix(body, "\n") {
 			b.WriteString("\n")
@@ -172,7 +232,7 @@ func renderMacro(b *strings.Builder, n *html.Node) {
 	case "info", "note", "warning", "tip":
 		label := strings.ToUpper(macroName[:1]) + macroName[1:]
 		var inner strings.Builder
-		walkChildren(&inner, n)
+		cv.walkChildren(&inner, n)
 		text := strings.TrimSpace(inner.String())
 		b.WriteString("> **")
 		b.WriteString(label)
@@ -214,7 +274,7 @@ func renderMacro(b *strings.Builder, n *html.Node) {
 		}
 
 	default:
-		walkChildren(b, n)
+		cv.walkChildren(b, n)
 	}
 }
 
@@ -234,25 +294,158 @@ func macroAttachment(n *html.Node, paramName string) string {
 	return ""
 }
 
-func renderACLink(b *strings.Builder, n *html.Node) {
-	pageTitle := ""
+func (cv converter) renderACLink(b *strings.Builder, n *html.Node) {
+	var page, user *html.Node
 	for c := n.FirstChild; c != nil; c = c.NextSibling {
-		if c.Type == html.ElementNode && c.Data == "ri:page" {
-			pageTitle = getAttr(c, "ri:content-title")
+		if c.Type != html.ElementNode {
+			continue
+		}
+		switch c.Data {
+		case "ri:page":
+			page = c
+		case "ri:user":
+			user = c
 		}
 	}
-	if pageTitle != "" {
-		b.WriteString("*")
-		b.WriteString(pageTitle)
-		b.WriteString("*")
-	} else {
-		walkChildren(b, n)
+	switch {
+	case user != nil:
+		b.WriteString(cv.mention(userRef(user)))
+	case page != nil && getAttr(page, "ri:content-title") != "":
+		// No URL: the page is named by space and title, and a mirror's
+		// base URL would lead nowhere. "#" renders as a link without one.
+		text := strings.TrimSpace(cv.linkBody(n))
+		if text == "" {
+			text = getAttr(page, "ri:content-title")
+		}
+		b.WriteString("[" + strings.ReplaceAll(text, "]", `\]`) + "](#)")
+	default:
+		cv.walkChildren(b, n)
 	}
+}
+
+// linkBody is the text an ac:link shows instead of its target's name. It is
+// searched for in depth: the HTML parser ignores "/>" on unknown tags, so
+// <ri:page/> holds the elements after it.
+func (cv converter) linkBody(n *html.Node) string {
+	var b strings.Builder
+	for c := n.FirstChild; c != nil; c = c.NextSibling {
+		if c.Type != html.ElementNode {
+			continue
+		}
+		if c.Data == "ac:link-body" || c.Data == "ac:plain-text-link-body" {
+			cv.walkChildren(&b, c)
+		} else {
+			b.WriteString(cv.linkBody(c))
+		}
+	}
+	return b.String()
+}
+
+// mention renders a user mention the way Confluence shows it: the user's
+// name, here with the e-mail address the hover card would show.
+func (cv converter) mention(r UserRef) string {
+	if cv.opts.User != nil {
+		if u, ok := cv.opts.User(r); ok && u.DisplayName != "" {
+			if u.Email != "" {
+				// Escaped: an autolink would render with a "mailto:" copy.
+				return "@" + u.DisplayName + ` \<` + u.Email + `\>`
+			}
+			return "@" + u.DisplayName
+		}
+	}
+	if r.Username != "" {
+		return "@" + r.Username
+	}
+	return "@unknown user"
+}
+
+// renderTaskList renders an ac:task-list as GFM task items; nested lists
+// (in a task body) are indented under their task.
+func (cv converter) renderTaskList(b *strings.Builder, n *html.Node) {
+	if out := b.String(); out != "" && !strings.HasSuffix(out, "\n") {
+		b.WriteString("\n")
+	}
+	b.WriteString(cv.taskLines(n))
+	b.WriteString("\n")
+}
+
+func (cv converter) taskLines(list *html.Node) string {
+	var b strings.Builder
+	for t := list.FirstChild; t != nil; t = t.NextSibling {
+		if t.Type != html.ElementNode || t.Data != "ac:task" {
+			continue
+		}
+		done := false
+		var text, nested strings.Builder
+		for c := t.FirstChild; c != nil; c = c.NextSibling {
+			if c.Type != html.ElementNode {
+				continue
+			}
+			switch c.Data {
+			case "ac:task-status":
+				done = strings.TrimSpace(textOf(c)) == "complete"
+			case "ac:task-body":
+				cv.taskBody(&text, &nested, c)
+			}
+		}
+		if done {
+			b.WriteString("- [x] ")
+		} else {
+			b.WriteString("- [ ] ")
+		}
+		b.WriteString(strings.Join(strings.Fields(text.String()), " "))
+		b.WriteString("\n")
+		for _, line := range strings.Split(strings.TrimRight(nested.String(), "\n"), "\n") {
+			if line != "" {
+				b.WriteString("  " + line + "\n")
+			}
+		}
+	}
+	return b.String()
+}
+
+// taskBody splits a task body into its own text and its nested task lists,
+// which may sit inside the body's inline wrappers.
+func (cv converter) taskBody(text, nested *strings.Builder, n *html.Node) {
+	for c := n.FirstChild; c != nil; c = c.NextSibling {
+		switch {
+		case c.Type == html.ElementNode && c.Data == "ac:task-list":
+			nested.WriteString(cv.taskLines(c))
+		case c.Type == html.ElementNode && hasTaskList(c) && (c.Data == "span" || c.Data == "p" || c.Data == "div"):
+			cv.taskBody(text, nested, c)
+		default:
+			cv.walkNode(text, c)
+		}
+	}
+}
+
+func hasTaskList(n *html.Node) bool {
+	for c := n.FirstChild; c != nil; c = c.NextSibling {
+		if c.Type == html.ElementNode && (c.Data == "ac:task-list" || hasTaskList(c)) {
+			return true
+		}
+	}
+	return false
+}
+
+func textOf(n *html.Node) string {
+	var b strings.Builder
+	var walk func(*html.Node)
+	walk = func(n *html.Node) {
+		if n.Type == html.TextNode {
+			b.WriteString(n.Data)
+		}
+		for c := n.FirstChild; c != nil; c = c.NextSibling {
+			walk(c)
+		}
+	}
+	walk(n)
+	return b.String()
 }
 
 // renderACImage renders an ac:image as a Markdown image whose source is the
 // URL (ri:url) or the attachment filename (ri:attachment).
-func renderACImage(b *strings.Builder, n *html.Node) {
+func (cv converter) renderACImage(b *strings.Builder, n *html.Node) {
 	src := ""
 	for c := n.FirstChild; c != nil; c = c.NextSibling {
 		if c.Type != html.ElementNode {
@@ -272,10 +465,14 @@ func renderACImage(b *strings.Builder, n *html.Node) {
 	b.WriteString(")")
 }
 
-func renderList(b *strings.Builder, n *html.Node, ordered bool) {
+func (cv converter) renderList(b *strings.Builder, n *html.Node, ordered bool) {
 	idx := 1
 	for c := n.FirstChild; c != nil; c = c.NextSibling {
 		if c.Type == html.ElementNode && c.Data == "li" {
+			if tl := onlyTaskList(c); tl != nil {
+				b.WriteString(cv.taskLines(tl))
+				continue
+			}
 			if ordered {
 				b.WriteString(strconv.Itoa(idx))
 				b.WriteString(". ")
@@ -284,16 +481,32 @@ func renderList(b *strings.Builder, n *html.Node, ordered bool) {
 				b.WriteString("- ")
 			}
 			var inner strings.Builder
-			walkChildren(&inner, c)
+			cv.walkChildren(&inner, c)
 			b.WriteString(strings.TrimSpace(inner.String()))
 			b.WriteString("\n")
 		}
 	}
 }
 
-func renderTable(b *strings.Builder, n *html.Node) {
+// onlyTaskList returns the task list a list item holds when it holds nothing
+// else: Confluence indents a task list by wrapping it in a bullet-less item.
+func onlyTaskList(li *html.Node) *html.Node {
+	var tl *html.Node
+	for c := li.FirstChild; c != nil; c = c.NextSibling {
+		switch {
+		case c.Type == html.ElementNode && c.Data == "ac:task-list" && tl == nil:
+			tl = c
+		case c.Type == html.TextNode && strings.TrimSpace(c.Data) == "":
+		default:
+			return nil
+		}
+	}
+	return tl
+}
+
+func (cv converter) renderTable(b *strings.Builder, n *html.Node) {
 	var rows [][]string
-	collectRows(n, &rows)
+	cv.collectRows(n, &rows)
 	if len(rows) == 0 {
 		return
 	}
@@ -344,13 +557,13 @@ func renderTable(b *strings.Builder, n *html.Node) {
 	b.WriteString("\n")
 }
 
-func collectRows(n *html.Node, rows *[][]string) {
+func (cv converter) collectRows(n *html.Node, rows *[][]string) {
 	if n.Type == html.ElementNode && n.Data == "tr" {
 		var cells []string
 		for c := n.FirstChild; c != nil; c = c.NextSibling {
 			if c.Type == html.ElementNode && (c.Data == "td" || c.Data == "th") {
 				var cellBuf strings.Builder
-				walkChildren(&cellBuf, c)
+				cv.walkChildren(&cellBuf, c)
 				cells = append(cells, strings.TrimSpace(cellBuf.String()))
 			}
 		}
@@ -358,13 +571,13 @@ func collectRows(n *html.Node, rows *[][]string) {
 		return
 	}
 	for c := n.FirstChild; c != nil; c = c.NextSibling {
-		collectRows(c, rows)
+		cv.collectRows(c, rows)
 	}
 }
 
-func walkChildren(b *strings.Builder, n *html.Node) {
+func (cv converter) walkChildren(b *strings.Builder, n *html.Node) {
 	for c := n.FirstChild; c != nil; c = c.NextSibling {
-		walkNode(b, c)
+		cv.walkNode(b, c)
 	}
 }
 
@@ -423,11 +636,11 @@ func getMacroParam(n *html.Node, paramName string) string {
 	return ""
 }
 
-func getMacroBody(n *html.Node) string {
+func (cv converter) getMacroBody(n *html.Node) string {
 	for c := n.FirstChild; c != nil; c = c.NextSibling {
 		if c.Type == html.ElementNode && c.Data == "ac:plain-text-body" {
 			var b strings.Builder
-			walkChildren(&b, c)
+			cv.walkChildren(&b, c)
 			return b.String()
 		}
 	}
