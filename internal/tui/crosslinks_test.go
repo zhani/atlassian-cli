@@ -115,23 +115,64 @@ func TestPageIssueLinks(t *testing.T) {
 	m := newTree(context.Background(), opts, plainRenderer)
 	m = drainTree(m, m.Init())
 	m = pressTree(m, "L")
-	if len(m.issueLinks) != 2 || !strings.Contains(m.View(), "DEV-2") || strings.Contains(m.View(), "X-9") {
-		t.Fatalf("issue picker: %+v\n%s", m.issueLinks, m.View())
+	if len(m.links) != 2 || !strings.Contains(m.View(), "DEV-2") || strings.Contains(m.View(), "X-9") {
+		t.Fatalf("issue picker: %+v\n%s", m.links, m.View())
 	}
 	m = pressTree(m, "j", "enter")
-	if len(opened) != 1 || opened[0] != "DEV-2" || m.issueLinks != nil {
-		t.Fatalf("opened %v, picker %v", opened, m.issueLinks)
+	if len(opened) != 1 || opened[0] != "DEV-2" || m.links != nil {
+		t.Fatalf("opened %v, picker %v", opened, m.links)
 	}
 	m = pressTree(m, "L", "esc")
-	if m.issueLinks != nil || len(opened) != 1 {
-		t.Fatalf("esc: picker %v, opened %v", m.issueLinks, opened)
+	if m.links != nil || len(opened) != 1 {
+		t.Fatalf("esc: picker %v, opened %v", m.links, opened)
 	}
 
 	// Without OpenIssue (no Jira) L does nothing.
 	opts.OpenIssue = nil
 	m = newTree(context.Background(), opts, plainRenderer)
 	m = drainTree(m, m.Init())
-	if m = pressTree(m, "L"); m.issueLinks != nil {
+	if m = pressTree(m, "L"); m.links != nil {
 		t.Errorf("picker opened without OpenIssue")
+	}
+}
+
+// linkedPages: Child links to Home by title, and to itself.
+type linkedPages struct {
+	fakePages
+	cql string
+}
+
+func (f *linkedPages) GetPage(_ context.Context, id string, _ []string) (*confluence.Page, error) {
+	body := ""
+	if id == "2" {
+		body = `<p>See <ac:link><ri:page ri:content-title="Home" /></ac:link> and <ac:link><ri:page ri:content-title="Page 2" /></ac:link></p>`
+	}
+	return &confluence.Page{ID: id, Title: "Page " + id, Space: &confluence.Space{Key: "DEV"},
+		Body: confluence.PageBody{Storage: &confluence.BodyContent{Value: body}}}, nil
+}
+
+func (f *linkedPages) SearchCQL(_ context.Context, cql string, _ int) ([]confluence.Page, error) {
+	f.cql = cql
+	return []confluence.Page{{ID: "1", Title: "Home"}}, nil
+}
+
+func TestPageLinksFollowed(t *testing.T) {
+	src := &linkedPages{}
+	m := newTree(context.Background(), TreeOptions{Source: src}, plainRenderer) // no Jira: L still lists pages
+	m = drainTree(m, m.Init())
+	m = pressTree(m, "enter", "j", "l", "l") // expand DEV, select Home, step into Child
+	if m.selected().id != "2" {
+		t.Fatalf("selected %s, want Child", m.selected().id)
+	}
+	m = pressTree(m, "L")
+	if len(m.links) != 1 || m.links[0].page == nil || m.links[0].page.Title != "Home" || !strings.Contains(m.View(), "Home  page") {
+		t.Fatalf("picker: %+v\n%s", m.links, m.View())
+	}
+	m = pressTree(m, "enter")
+	if m.links != nil || m.selected().id != "1" || m.shownID != "1" {
+		t.Fatalf("after following: picker %v, selected %s, shown %s", m.links, m.selected().id, m.shownID)
+	}
+	if src.cql != `space = "DEV" AND type = page AND title = "Home"` {
+		t.Errorf("lookup: %s", src.cql)
 	}
 }

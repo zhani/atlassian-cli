@@ -58,7 +58,7 @@ func cqlQuote(s string) string {
 // pageTreeOptions are the page browser's options, including opening the
 // Jira issues a page shows or links to when Jira is configured.
 func pageTreeOptions(client *confluence.Client) tui.TreeOptions {
-	opts := tui.TreeOptions{Source: client, OpenURL: browser.Open, Copy: tui.CopyToClipboard}
+	opts := tui.TreeOptions{Source: client, OpenURL: browser.Open, Copy: tui.CopyToClipboard, PageBases: []string{client.BaseURL()}}
 	if store, err := bookmarks.Open(); err == nil {
 		opts.Bookmarks = store
 	}

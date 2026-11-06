@@ -81,7 +81,7 @@ func TestConvert(t *testing.T) {
 		{
 			"ac:link with page title",
 			`<ac:link><ri:page ri:content-title="My Page"/></ac:link>`,
-			"*My Page*",
+			"[My Page](#)",
 		},
 		{"emoticon skipped, following text preserved", `text<ac:emoticon ac:name="smile"/>more`, "textmore"},
 		{
@@ -134,5 +134,64 @@ func TestConvertViewPDF(t *testing.T) {
 	}
 	if got := Convert(`<ac:structured-macro ac:name="viewpdf"></ac:structured-macro>`); got != "" {
 		t.Errorf("no attachment: got %q", got)
+	}
+}
+
+// The "Development" list of a real page: task ids/statuses must not leak as
+// text, mentions and page links must render.
+func TestConvertTaskList(t *testing.T) {
+	t.Parallel()
+	in := `<h3>Development</h3><ac:task-list>
+<ac:task>
+<ac:task-id>6</ac:task-id>
+<ac:task-status>complete</ac:task-status>
+<ac:task-body><span>Review stories. <ac:link><ri:user ri:userkey="k1" /></ac:link> </span></ac:task-body>
+</ac:task>
+<ac:task>
+<ac:task-id>2461</ac:task-id>
+<ac:task-status>incomplete</ac:task-status>
+<ac:task-body><span><span>L</span>ink stories as defined in <ac:link><ri:page ri:space-key="ACW" ri:content-title="Feature intro" /></ac:link>. <ac:link><ri:user ri:userkey="k2" /></ac:link> </span></ac:task-body>
+</ac:task>
+</ac:task-list><ul><li style="list-style-type: none;"><ac:task-list>
+<ac:task>
+<ac:task-id>2330</ac:task-id>
+<ac:task-uuid>ce225876</ac:task-uuid>
+<ac:task-status>complete</ac:task-status>
+<ac:task-body><span>Feature specification </span><ac:task-list>
+<ac:task>
+<ac:task-id>2608</ac:task-id>
+<ac:task-status>incomplete</ac:task-status>
+<ac:task-body><span>Nested<br /></span></ac:task-body>
+</ac:task>
+</ac:task-list></ac:task-body>
+</ac:task>
+</ac:task-list></li></ul>`
+	users := func(r UserRef) (User, bool) {
+		if r.Key == "k1" {
+			return User{DisplayName: "Doe, Jane", Email: "jane@example.com"}, true
+		}
+		return User{}, false
+	}
+	want := "### Development\n\n" +
+		"- [x] Review stories. @Doe, Jane \\<jane@example.com\\>\n" +
+		"- [ ] Link stories as defined in [Feature intro](#). @unknown user\n" +
+		"\n\n- [x] Feature specification\n" +
+		"  - [ ] Nested"
+	if got := ConvertWith(in, Options{User: users}); got != want {
+		t.Errorf("got:\n%s\nwant:\n%s", got, want)
+	}
+	if got := Mentions(in); len(got) != 2 || got[0].Key != "k1" || got[1].Key != "k2" {
+		t.Errorf("Mentions = %+v", got)
+	}
+}
+
+func TestConvertMentionFallbacks(t *testing.T) {
+	t.Parallel()
+	if got := Convert(`<p>by <ac:link><ri:user ri:username="jdoe" /></ac:link></p>`); got != "by @jdoe" {
+		t.Errorf("username: got %q", got)
+	}
+	got := Convert(`<ac:link><ri:page ri:content-title="T" /><ac:plain-text-link-body><![CDATA[shown]]></ac:plain-text-link-body></ac:link>`)
+	if got != "[shown](#)" {
+		t.Errorf("link body: got %q", got)
 	}
 }

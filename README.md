@@ -430,7 +430,7 @@ when they are the list's only columns, else after the table under each key.
 | `/` | Fuzzy-find pages (the whole space is loaded in the background): `↓`/`↑`, `ctrl+j`/`ctrl+k` or `ctrl+n`/`ctrl+p` move between matches, `enter` jumps to the page, `esc` goes back |
 | `i` | View the page's images full screen (every slide of an embedded PDF) |
 | `[` / `]` | Previous / next slide of the embedded PDF in view |
-| `L` | Jira issues on the page (Jira issue macros, links to issues, then the issues of its issue lists; with Jira configured): `enter` opens one in the issue browser, `q` there comes back |
+| `L` | Links on the page: Jira issues (Jira issue macros, links to issues, then the issues of its issue lists; with Jira configured) — `enter` opens one in the issue browser, `q` there comes back — then the Confluence pages it links to — `enter` selects that page in the tree, loading its space when needed |
 | `b` | Bookmark the page (again: remove the bookmark) |
 | `B` | Bookmarks: jump to a bookmarked page |
 | `o` / `c` | Open the page in the browser / copy its URL |

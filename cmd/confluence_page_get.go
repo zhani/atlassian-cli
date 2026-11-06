@@ -4,6 +4,7 @@ import (
 	"fmt"
 
 	"github.com/spf13/cobra"
+	"github.com/zhani/atlassian-cli/internal/confluence"
 	"github.com/zhani/atlassian-cli/internal/htmlconv"
 )
 
@@ -36,7 +37,8 @@ var confluencePageGetCmd = &cobra.Command{
 		if raw {
 			_, err = fmt.Fprintln(cmd.OutOrStdout(), storage)
 		} else {
-			_, err = fmt.Fprintln(cmd.OutOrStdout(), htmlconv.Convert(storage))
+			users := confluence.ResolveMentions(cmd.Context(), client, storage)
+			_, err = fmt.Fprintln(cmd.OutOrStdout(), htmlconv.ConvertWith(storage, users.Options()))
 		}
 		return err
 	},

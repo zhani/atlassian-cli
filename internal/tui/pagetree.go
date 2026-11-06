@@ -17,7 +17,6 @@ import (
 	"github.com/zhani/atlassian-cli/internal/confluence"
 	"github.com/zhani/atlassian-cli/internal/htmlconv"
 	"github.com/zhani/atlassian-cli/internal/termimg"
-	"github.com/zhani/atlassian-cli/internal/xref"
 )
 
 // PageSource is the subset of the Confluence client the page browser needs.
@@ -51,6 +50,10 @@ type TreeOptions struct {
 	OpenIssue  func(ctx context.Context, key string) error
 	IssueBases []string
 
+	// PageBases are the Confluence base URLs page links start with (L
+	// lists those pages besides <ri:page> links).
+	PageBases []string
+
 	// SearchIssues runs the queries of the Jira issue lists on pages, which
 	// then show as tables; nil shows only their queries.
 	SearchIssues IssueSearcher
@@ -81,6 +84,7 @@ type (
 		id    string
 		page  *confluence.Page
 		lists map[string]issueList // the page's issue lists, by normalized JQL
+		users confluence.Mentions
 		err   error
 	}
 )
@@ -91,7 +95,7 @@ var treeKeys = struct {
 }{
 	prevSlide: key.NewBinding(key.WithKeys("["), key.WithHelp("[", "previous slide")),
 	nextSlide: key.NewBinding(key.WithKeys("]"), key.WithHelp("]", "next slide")),
-	issues:    key.NewBinding(key.WithKeys("L"), key.WithHelp("L", "linked issues")),
+	issues:    key.NewBinding(key.WithKeys("L"), key.WithHelp("L", "links")),
 	expand:    key.NewBinding(key.WithKeys("enter", "l", "right"), key.WithHelp("enter/l", "expand")),
 	collapse:  key.NewBinding(key.WithKeys("h", "left", "backspace"), key.WithHelp("h", "collapse")),
 	focus:     key.NewBinding(key.WithKeys("tab", "w"), key.WithHelp("tab", "switch pane")),
@@ -110,6 +114,7 @@ type treeModel struct {
 	content viewport.Model
 	pages   map[string]*confluence.Page     // loaded page content by ID
 	lists   map[string]map[string]issueList // issue lists of loaded pages, by ID
+	users   map[string]confluence.Mentions  // users mentioned on loaded pages, by ID
 	shownID string                          // page in the content pane
 
 	gfx      *graphics               // image drawing; nil shows captions only
@@ -130,7 +135,7 @@ type treeModel struct {
 	spaceLoaded  map[string]bool // spaces whose whole page tree is loaded
 	spaceLoading map[string]bool
 
-	issueLinks []xref.IssueRef // issue picker (L) entries; non-nil while it is open
+	links      []treeLink // link picker (L) entries; non-nil while it is open
 	linkCursor int
 
 	picker        *bookmarkModel // open bookmark picker (B)
@@ -153,7 +158,7 @@ func newTree(ctx context.Context, opts TreeOptions, render markdownRenderer) tre
 		ctx: ctx, opts: opts, render: render,
 		content:  vp,
 		pages:    map[string]*confluence.Page{},
-		markdown: map[string]string{}, lists: map[string]map[string]issueList{}, images: map[string][]*pageImage{}, rendered: map[string]string{},
+		markdown: map[string]string{}, lists: map[string]map[string]issueList{}, users: map[string]confluence.Mentions{}, images: map[string][]*pageImage{}, rendered: map[string]string{},
 		spinner: spinner.New(spinner.WithSpinner(spinner.Dot)),
 		filter:  newTreeFilterInput(),
 
@@ -205,6 +210,10 @@ func (m treeModel) loadPage(id string) tea.Cmd {
 		msg := pageContentMsg{id: id, page: p, err: err}
 		if err == nil && p.Body.Storage != nil {
 			msg.lists = loadIssueLists(ctx, search, p.Body.Storage.Value)
+			// Storage names mentioned users only by key.
+			if g, ok := src.(confluence.UserGetter); ok {
+				msg.users = confluence.ResolveMentions(ctx, g, p.Body.Storage.Value)
+			}
 		}
 		return msg
 	}
@@ -222,6 +231,14 @@ func (m treeModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			_, _, _ = updatePicker(m.picker, msg)
 		}
 		return m, nil
+
+	case pageFoundMsg:
+		m.loading = false
+		if msg.err != nil {
+			m.setStatus(msg.err.Error(), true)
+			return m, nil
+		}
+		return m, m.revealPage(bookmarks.Bookmark{Key: msg.id, Space: msg.space})
 
 	case pageSpaceMsg:
 		if msg.id != m.pendingReveal {
@@ -323,6 +340,7 @@ func (m treeModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.pages[msg.id] = msg.page
 		m.lists[msg.id] = msg.lists
+		m.users[msg.id] = msg.users
 		m.preparePage(msg.page)
 		if m.shownID == msg.id {
 			m.showContent()
@@ -396,7 +414,7 @@ func (m treeModel) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	if m.filtering {
 		return m.handleFilterKey(msg)
 	}
-	if m.issueLinks != nil {
+	if m.links != nil {
 		return m.handleIssueLinksKey(msg)
 	}
 	if key.Matches(msg, keys.quit) {
@@ -404,7 +422,7 @@ func (m treeModel) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, tea.Quit
 	}
 	m.status = ""
-	if m.opts.OpenIssue != nil && key.Matches(msg, treeKeys.issues) {
+	if key.Matches(msg, treeKeys.issues) {
 		return m.openIssueLinks()
 	}
 	if key.Matches(msg, keys.filter) {
@@ -681,7 +699,7 @@ func (m *treeModel) showContent() {
 func (m *treeModel) preparePage(p *confluence.Page) string {
 	body := ""
 	if p.Body.Storage != nil {
-		body = htmlconv.Convert(expandIssueLists(p.Body.Storage.Value, m.lists[p.ID]))
+		body = htmlconv.ConvertWith(expandIssueLists(p.Body.Storage.Value, m.lists[p.ID]), m.users[p.ID].Options())
 	}
 	body, imgs := extractImages(body)
 	md := fmt.Sprintf("# %s\n\n_Version %d · %s_\n\n", p.Title, p.Version.Number, p.Version.When) + body
@@ -693,6 +711,7 @@ func (m *treeModel) preparePage(p *confluence.Page) string {
 func (m *treeModel) forgetPage(id string) {
 	delete(m.pages, id)
 	delete(m.lists, id)
+	delete(m.users, id)
 	delete(m.markdown, id)
 	if m.gfx.kitty() {
 		for _, im := range m.images[id] {
@@ -720,11 +739,11 @@ func (m treeModel) View() string {
 	}
 	tree := m.treeView()
 	contentStyle := styleSidebarBlurred
-	if m.focusContent || m.issueLinks != nil {
+	if m.focusContent || m.links != nil {
 		contentStyle = styleSidebarFocused
 	}
 	content := contentStyle.Render(m.content.View())
-	if m.issueLinks != nil {
+	if m.links != nil {
 		content = contentStyle.Render(m.issueLinksView())
 	}
 	return lipgloss.JoinVertical(lipgloss.Left, lipgloss.JoinHorizontal(lipgloss.Top, tree, content), m.footerView())
@@ -815,7 +834,7 @@ func (m treeModel) helpKeys() helpKeys {
 		b := []key.Binding{filterKeys.next, filterKeys.prev, filterKeys.accept, filterKeys.cancel}
 		return helpKeys{short: b, full: [][]key.Binding{b}}
 	}
-	if m.issueLinks != nil {
+	if m.links != nil {
 		b := []key.Binding{keys.up, keys.down, linkOpenKey, keys.back}
 		return helpKeys{short: b, full: [][]key.Binding{b}}
 	}
@@ -823,10 +842,7 @@ func (m treeModel) helpKeys() helpKeys {
 	if m.opts.Bookmarks != nil {
 		short = append(short, bookmarkKeys.toggle, bookmarkKeys.picker)
 	}
-	if m.opts.OpenIssue != nil {
-		short = append(short, treeKeys.issues)
-	}
-	short = append(short, treeKeys.images, keys.open, keys.help, keys.quit)
+	short = append(short, treeKeys.issues, treeKeys.images, keys.open, keys.help, keys.quit)
 	return helpKeys{short: short, full: [][]key.Binding{
 		{keys.up, keys.down, keys.pageUp, keys.pageDown, keys.top, keys.bottom},
 		{treeKeys.expand, treeKeys.collapse, treeKeys.focus, paneKeys.left, paneKeys.right, treeKeys.refresh},

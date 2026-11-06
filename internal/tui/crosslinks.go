@@ -2,6 +2,7 @@ package tui
 
 import (
 	"context"
+	"fmt"
 	"io"
 	"net/url"
 	"strings"
@@ -9,6 +10,8 @@ import (
 	"github.com/charmbracelet/bubbles/key"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/zhani/atlassian-cli/internal/bookmarks"
+	"github.com/zhani/atlassian-cli/internal/confluence"
 	"github.com/zhani/atlassian-cli/internal/jira"
 	"github.com/zhani/atlassian-cli/internal/xref"
 )
@@ -16,7 +19,7 @@ import (
 // Links between Jira and Confluence: the issue browser's l also lists the
 // pages an issue links to and opens one in the page browser; the page
 // browser's L lists the issues a page shows or links to and opens one in
-// the issue browser. The other browser runs in this process, in place of
+// the issue browser (and the pages it links to, which it selects itself). The other browser runs in this process, in place of
 // this one (tea.Exec), and q/esc there comes back here.
 
 // crossDoneMsg reports how opening the other browser went.
@@ -107,8 +110,28 @@ func issuePageItems(issue *jira.Issue, bases []string) []linkItem {
 	return out
 }
 
+// treeLink is an entry of the page browser's link picker (L): an issue the
+// page shows or links to, or a page it links to.
+type treeLink struct {
+	issue *xref.IssueRef
+	page  *xref.PageRef
+}
+
+// pageFoundMsg answers the title lookup of a followed page link.
+type pageFoundMsg struct {
+	id, space string
+	err       error
+}
+
+// PageFinder looks pages up by CQL; *confluence.Client implements it. The
+// page browser needs it to follow links that name a page by title.
+type PageFinder interface {
+	SearchCQL(ctx context.Context, cql string, limit int) ([]confluence.Page, error)
+}
+
 // openIssueLinks opens the picker of the issues the shown page shows (Jira
-// issue macro), links to or lists (issue lists, after the others).
+// issue macro), links to or lists (issue lists, after the others), then the
+// pages it links to.
 func (m treeModel) openIssueLinks() (tea.Model, tea.Cmd) {
 	p := m.pages[m.shownID]
 	if p == nil {
@@ -119,63 +142,129 @@ func (m treeModel) openIssueLinks() (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 	}
-	var refs []xref.IssueRef
+	storage := ""
 	if p.Body.Storage != nil {
-		refs = xref.IssueRefs(p.Body.Storage.Value, m.opts.IssueBases...)
+		storage = p.Body.Storage.Value
 	}
-	named := map[string]bool{}
-	for _, r := range refs {
-		named[r.Key] = true
-	}
-	for _, k := range listedIssues(m.lists[p.ID]) {
-		if !named[k] {
-			refs = append(refs, xref.IssueRef{Key: k, List: true})
+	var links []treeLink
+	if m.opts.OpenIssue != nil {
+		refs := xref.IssueRefs(storage, m.opts.IssueBases...)
+		named := map[string]bool{}
+		for _, r := range refs {
+			named[r.Key] = true
+		}
+		for _, k := range listedIssues(m.lists[p.ID]) {
+			if !named[k] {
+				refs = append(refs, xref.IssueRef{Key: k, List: true})
+			}
+		}
+		for i := range refs {
+			links = append(links, treeLink{issue: &refs[i]})
 		}
 	}
-	if len(refs) == 0 {
-		m.setStatus("No Jira issues on "+p.Title, false)
+	space := ""
+	if p.Space != nil {
+		space = p.Space.Key
+	}
+	for _, r := range xref.StoragePageLinks(storage, space, m.opts.PageBases...) {
+		if r.ID == p.ID || (r.ID == "" && r.Space == space && r.Title == p.Title) {
+			continue // a link to itself
+		}
+		links = append(links, treeLink{page: &r})
+	}
+	if len(links) == 0 {
+		m.setStatus("No links on "+p.Title, false)
 		return m, nil
 	}
-	m.issueLinks, m.linkCursor = refs, 0
+	m.links, m.linkCursor = links, 0
 	return m, nil
 }
 
 func (m treeModel) handleIssueLinksKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch {
 	case key.Matches(msg, keys.back), key.Matches(msg, keys.quit), key.Matches(msg, treeKeys.issues):
-		m.issueLinks = nil
+		m.links = nil
 	case key.Matches(msg, keys.up):
 		m.linkCursor = max(0, m.linkCursor-1)
 	case key.Matches(msg, keys.down):
-		m.linkCursor = min(len(m.issueLinks)-1, m.linkCursor+1)
+		m.linkCursor = min(len(m.links)-1, m.linkCursor+1)
 	case key.Matches(msg, keys.top):
 		m.linkCursor = 0
 	case key.Matches(msg, keys.bottom):
-		m.linkCursor = len(m.issueLinks) - 1
+		m.linkCursor = len(m.links) - 1
 	case key.Matches(msg, keys.choose):
-		k, open := m.issueLinks[m.linkCursor].Key, m.opts.OpenIssue
-		m.issueLinks = nil
+		l := m.links[m.linkCursor]
+		m.links = nil
+		if l.page != nil {
+			return m, m.followPage(*l.page)
+		}
+		k, open := l.issue.Key, m.opts.OpenIssue
 		return m, execCross(m.ctx, k, func(ctx context.Context) error { return open(ctx, k) })
 	}
 	return m, nil
 }
 
+// followPage selects a linked page in the tree (loading its space when
+// needed), looking it up by title first when the link names no ID.
+func (m *treeModel) followPage(r xref.PageRef) tea.Cmd {
+	if r.ID != "" {
+		return m.revealPage(bookmarks.Bookmark{Key: r.ID, Space: r.Space})
+	}
+	finder, ok := m.opts.Source.(PageFinder)
+	if !ok {
+		m.setStatus("Cannot look up "+r.Title, true)
+		return nil
+	}
+	ctx := m.ctx
+	m.loading = true
+	return tea.Batch(m.spinner.Tick, func() tea.Msg {
+		cql := "type = page AND title = " + cqlQuote(r.Title)
+		if r.Space != "" {
+			cql = "space = " + cqlQuote(r.Space) + " AND " + cql
+		}
+		pages, err := finder.SearchCQL(ctx, cql, 1)
+		switch {
+		case err != nil:
+			return pageFoundMsg{err: err}
+		case len(pages) == 0:
+			return pageFoundMsg{err: fmt.Errorf("no page %q in space %s", r.Title, r.Space)}
+		}
+		return pageFoundMsg{id: pages[0].ID, space: r.Space}
+	})
+}
+
+func cqlQuote(s string) string {
+	return `"` + strings.NewReplacer(`\`, `\\`, `"`, `\"`).Replace(s) + `"`
+}
+
 // issueLinksView renders the issue picker in place of the page content.
 func (m treeModel) issueLinksView() string {
 	var sb strings.Builder
-	sb.WriteString(styleDim.Render(" Open an issue of this page (enter), esc to go back:") + "\n\n")
+	sb.WriteString(styleDim.Render(" Open an issue or page this page links to (enter), esc to go back:") + "\n\n")
 	rows := max(1, m.content.Height-2)
-	start := max(0, min(m.linkCursor-rows/2, len(m.issueLinks)-rows))
-	for i := start; i < min(len(m.issueLinks), start+rows); i++ {
-		r := m.issueLinks[i]
-		how := "issue macro"
-		switch {
-		case r.List:
-			how = "issue list"
-		case r.URL != "":
-			how = "link"
+	start := max(0, min(m.linkCursor-rows/2, len(m.links)-rows))
+	for i := start; i < min(len(m.links), start+rows); i++ {
+		var line string
+		if pg := m.links[i].page; pg != nil {
+			name, how := pg.Title, "page"
+			if name == "" {
+				name = "page " + pg.ID
+			}
+			if p := m.pages[m.shownID]; pg.Space != "" && p != nil && p.Space != nil && p.Space.Key != pg.Space {
+				how = "page in " + pg.Space
+			}
+			line = styleTitle.Render(name) + "  " + styleDim.Render(how)
+		} else {
+			r := m.links[i].issue
+			how := "issue macro"
+			switch {
+			case r.List:
+				how = "issue list"
+			case r.URL != "":
+				how = "link"
+			}
+			line = styleTitle.Render(r.Key) + "  " + styleDim.Render(how)
 		}
-		line := styleTitle.Render(r.Key) + "  " + styleDim.Render(how)
 		if i == m.linkCursor {
 			sb.WriteString(styleCursor.Render(" ▶ ") + line + "\n")
 		} else {

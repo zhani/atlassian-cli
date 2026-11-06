@@ -23,6 +23,7 @@ import (
 	"github.com/zhani/atlassian-cli/internal/bookmarks"
 	"github.com/zhani/atlassian-cli/internal/config"
 	"github.com/zhani/atlassian-cli/internal/confluence"
+	"github.com/zhani/atlassian-cli/internal/htmlconv"
 	"github.com/zhani/atlassian-cli/internal/jira"
 	"github.com/zhani/atlassian-cli/internal/mirror"
 	"github.com/zhani/atlassian-cli/internal/xray"
@@ -66,6 +67,7 @@ type Exporter struct {
 	stage    string
 	done     map[string]bool // exported issue keys
 	pageDone map[string]bool
+	users    map[htmlconv.UserRef]map[string]any // mentioned users looked up (nil: not found)
 	attSeen  map[string]bool
 	names    map[string]string
 	// treePages are the pages exported from bookmarks and --page (with
@@ -92,6 +94,7 @@ func (e *Exporter) Export(ctx context.Context, opts ExportOptions) (*mirror.Mani
 	started := time.Now().UTC()
 	e.opts = opts
 	e.done, e.pageDone, e.attSeen, e.names = map[string]bool{}, map[string]bool{}, map[string]bool{}, map[string]string{}
+	e.users = map[htmlconv.UserRef]map[string]any{}
 	if opts.Since != "" {
 		t, err := mirror.ParseSince(opts.Since, time.Now())
 		if err != nil {
@@ -1006,6 +1009,11 @@ func (e *Exporter) exportPage(ctx context.Context, id string, checkSince bool) (
 			return false, err
 		}
 	}
+	if users := e.mentionedUsers(ctx, id, body); len(users) > 0 {
+		if err := writeJSONFile(filepath.Join(dir, "users.json"), users); err != nil {
+			return false, err
+		}
+	}
 	if err := writeJSONFile(filepath.Join(dir, "page.json"), p); err != nil {
 		return false, err
 	}
@@ -1019,6 +1027,33 @@ func (e *Exporter) exportPage(ctx context.Context, id string, checkSince bool) (
 	}
 	e.stats.pages++
 	return true, nil
+}
+
+// mentionedUsers looks up the users a page mentions: storage names them only
+// by key, and the mirror serves /rest/api/user from these.
+func (e *Exporter) mentionedUsers(ctx context.Context, pageID, storage string) []map[string]any {
+	var out []map[string]any
+	for _, r := range htmlconv.Mentions(storage) {
+		u, seen := e.users[r]
+		if !seen {
+			by, value := "key", r.Key
+			switch {
+			case r.AccountID != "":
+				by, value = "accountId", r.AccountID
+			case r.Key == "":
+				by, value = "username", r.Username
+			}
+			if err := e.cget(ctx, "/rest/api/user", url.Values{by: {value}}, &u); err != nil {
+				e.warn("page %s: user %s: %v", pageID, value, err)
+				u = nil
+			}
+			e.users[r] = u
+		}
+		if u != nil {
+			out = append(out, u)
+		}
+	}
+	return out
 }
 
 func dirSize(dir string) int64 {

@@ -94,9 +94,9 @@ func TestPageIssueLists(t *testing.T) {
 
 	// L offers the listed issues after the ones the page names.
 	m = pressTree(m, "L")
-	if len(m.issueLinks) != 2 || m.issueLinks[0].Key != "DEV-1" || m.issueLinks[1].Key != "DEV-7" || !m.issueLinks[1].List ||
+	if len(m.links) != 2 || m.links[0].issue.Key != "DEV-1" || m.links[1].issue.Key != "DEV-7" || !m.links[1].issue.List ||
 		!strings.Contains(m.View(), "issue list") {
-		t.Fatalf("picker: %+v\n%s", m.issueLinks, m.View())
+		t.Fatalf("picker: %+v\n%s", m.links, m.View())
 	}
 
 	// Without a searcher (no Jira) the lists show their queries only.
