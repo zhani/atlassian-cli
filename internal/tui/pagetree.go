@@ -15,6 +15,7 @@ import (
 	"github.com/charmbracelet/lipgloss"
 	"github.com/zhani/atlassian-cli/internal/bookmarks"
 	"github.com/zhani/atlassian-cli/internal/confluence"
+	"github.com/zhani/atlassian-cli/internal/embeds"
 	"github.com/zhani/atlassian-cli/internal/htmlconv"
 	"github.com/zhani/atlassian-cli/internal/termimg"
 )
@@ -57,6 +58,12 @@ type TreeOptions struct {
 	// SearchIssues runs the queries of the Jira issue lists on pages, which
 	// then show as tables; nil shows only their queries.
 	SearchIssues IssueSearcher
+
+	// Embeds are local copies of documents pages embed from other sites,
+	// shown in place of the embed as mirror export shows them (a PDF as a
+	// slide show) and read from disk. An attachment of the page with the
+	// same name wins, as in the export.
+	Embeds []embeds.Embed
 }
 
 // treeLimit caps how many children are listed per node.
@@ -123,6 +130,10 @@ type treeModel struct {
 	rendered map[string]string       // glamour output by "id/width"
 	imageAt  []int                   // content line of each image of the shown page
 
+	// embedFiles maps the attachment names of embeds shown on each page
+	// (by ID) to their local files.
+	embedFiles map[string]map[string]string
+
 	focusContent bool
 
 	// Fuzzy filter (/), see pagefilter.go.
@@ -162,6 +173,7 @@ func newTree(ctx context.Context, opts TreeOptions, render markdownRenderer) tre
 		spinner: spinner.New(spinner.WithSpinner(spinner.Dot)),
 		filter:  newTreeFilterInput(),
 
+		embedFiles:  map[string]map[string]string{},
 		spaceLoaded: map[string]bool{}, spaceLoading: map[string]bool{},
 		help:  help.New(),
 		width: 100, height: 24,
@@ -699,7 +711,13 @@ func (m *treeModel) showContent() {
 func (m *treeModel) preparePage(p *confluence.Page) string {
 	body := ""
 	if p.Body.Storage != nil {
-		body = htmlconv.ConvertWith(expandIssueLists(p.Body.Storage.Value, m.lists[p.ID]), m.users[p.ID].Options())
+		storage, uses, _ := embeds.Apply(p.Body.Storage.Value, m.opts.Embeds)
+		files := map[string]string{}
+		for _, u := range uses {
+			files[u.Title] = u.Embed.File
+		}
+		m.embedFiles[p.ID] = files
+		body = htmlconv.ConvertWith(expandIssueLists(storage, m.lists[p.ID]), m.users[p.ID].Options())
 	}
 	body, imgs := extractImages(body)
 	md := fmt.Sprintf("# %s\n\n_Version %d · %s_\n\n", p.Title, p.Version.Number, p.Version.When) + body
@@ -713,6 +731,7 @@ func (m *treeModel) forgetPage(id string) {
 	delete(m.lists, id)
 	delete(m.users, id)
 	delete(m.markdown, id)
+	delete(m.embedFiles, id)
 	if m.gfx.kitty() {
 		for _, im := range m.images[id] {
 			if im.kittyID != 0 {

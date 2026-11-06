@@ -23,6 +23,7 @@ import (
 	"github.com/zhani/atlassian-cli/internal/bookmarks"
 	"github.com/zhani/atlassian-cli/internal/config"
 	"github.com/zhani/atlassian-cli/internal/confluence"
+	"github.com/zhani/atlassian-cli/internal/embeds"
 	"github.com/zhani/atlassian-cli/internal/htmlconv"
 	"github.com/zhani/atlassian-cli/internal/jira"
 	"github.com/zhani/atlassian-cli/internal/mirror"
@@ -50,7 +51,7 @@ type ExportOptions struct {
 	Only string
 	// Embeds maps documents pages embed by URL to local copies, which are
 	// attached and shown in place of the embed (see Embed).
-	Embeds []Embed
+	Embeds []embeds.Embed
 	Log    io.Writer
 }
 

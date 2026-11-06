@@ -14,6 +14,7 @@ import (
 	"github.com/zhani/atlassian-cli/internal/bookmarks"
 	"github.com/zhani/atlassian-cli/internal/config"
 	"github.com/zhani/atlassian-cli/internal/confluence"
+	"github.com/zhani/atlassian-cli/internal/embeds"
 	"github.com/zhani/atlassian-cli/internal/jira"
 	"github.com/zhani/atlassian-cli/internal/mirror"
 	"github.com/zhani/atlassian-cli/internal/mirrorsync"
@@ -100,12 +101,12 @@ a mapping export without --since (or with --page) once.`,
 		embedsPath, _ := cmd.Flags().GetString("embeds")
 		required := embedsPath != ""
 		if !required {
-			embedsPath, _ = mirrorsync.DefaultEmbedsPath()
+			embedsPath, _ = embeds.DefaultPath()
 		}
-		var embeds []mirrorsync.Embed
+		var embedList []embeds.Embed
 		if embedsPath != "" {
 			var err error
-			if embeds, err = mirrorsync.LoadEmbeds(embedsPath, required); err != nil {
+			if embedList, err = embeds.Load(embedsPath, required); err != nil {
 				return fmt.Errorf("embeds: %w", err)
 			}
 		}
@@ -122,7 +123,7 @@ a mapping export without --since (or with --page) once.`,
 			return fmt.Errorf("neither Jira nor Confluence is configured: %w", errors.Join(jerr, cerr))
 		}
 		_, err := e.Export(cmd.Context(), mirrorsync.ExportOptions{
-			Out: out, Boards: boards, JQL: jqls, Pages: pages, Bookmarks: !noBookmarks, Since: since, Only: only, Embeds: embeds, Log: os.Stderr,
+			Out: out, Boards: boards, JQL: jqls, Pages: pages, Bookmarks: !noBookmarks, Since: since, Only: only, Embeds: embedList, Log: os.Stderr,
 			ActiveSprints: !noSprint, MyIssues: !noMine,
 		})
 		return err

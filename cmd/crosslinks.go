@@ -3,11 +3,13 @@ package cmd
 import (
 	"context"
 	"fmt"
+	"os"
 	"strings"
 
 	"github.com/zhani/atlassian-cli/internal/bookmarks"
 	"github.com/zhani/atlassian-cli/internal/browser"
 	"github.com/zhani/atlassian-cli/internal/confluence"
+	"github.com/zhani/atlassian-cli/internal/embeds"
 	"github.com/zhani/atlassian-cli/internal/tui"
 	"github.com/zhani/atlassian-cli/internal/xref"
 )
@@ -61,6 +63,13 @@ func pageTreeOptions(client *confluence.Client) tui.TreeOptions {
 	opts := tui.TreeOptions{Source: client, OpenURL: browser.Open, Copy: tui.CopyToClipboard, PageBases: []string{client.BaseURL()}}
 	if store, err := bookmarks.Open(); err == nil {
 		opts.Bookmarks = store
+	}
+	// The same embeds file mirror export uses, so a live page shows the local
+	// copies as its mirrored copy does.
+	if list, err := embeds.LoadDefault(); err != nil {
+		fmt.Fprintf(os.Stderr, "Warning: embeds: %v\n", err)
+	} else {
+		opts.Embeds = list
 	}
 	jc, err := newJiraClient()
 	if err != nil {

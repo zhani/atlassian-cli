@@ -169,7 +169,7 @@ These apply to Cloud and Server/DC alike.
 | `ATLASSIAN_BOOKMARKS` | Bookmark file (default `~/.config/atlassian-cli/bookmarks.yaml`) |
 | `ATLASSIAN_CA_FILE` | Extra CA certificates to trust (PEM, one or more, or a single DER `.crt`), on top of the system ones. For a private CA, and on macOS also for server certificates the system rejects whatever the keychain trusts (e.g. valid for more than 825 days): with this set, the certificate is checked against the file when the system check fails. If it is a chain, include the issuing (intermediate) CA |
 | `ATLASSIAN_IMAGES` | How the Confluence browser draws images: `auto` (default), `kitty`, `iterm`, `sixel`, `blocks` or `off` |
-| `ATLASSIAN_EMBEDS` | Embeds file of `mirror export` (default `~/.config/atlassian-cli/embeds.yaml`; see [Embedded documents](#embedded-documents)) |
+| `ATLASSIAN_EMBEDS` | Embeds file of `mirror export` and the Confluence browser (default `~/.config/atlassian-cli/embeds.yaml`; see [Embedded documents](#embedded-documents)) |
 | `ATLASSIAN_SLIDES_CACHE` | Where the Confluence browser keeps rendered PDF slides (default `~/.cache/atlassian-cli/slides`) |
 | `GLAMOUR_STYLE` | Colour theme of rendered issues and pages (`dark`, `light`, `dracula`, …; default from the terminal background) |
 | `VISUAL` / `EDITOR` | Editor for `-e`, `confluence page edit` and `bookmark edit` (default `vi`) |
@@ -463,8 +463,8 @@ to override the detection.
 Known issue: the full-screen view stays blank with WezTerm on Windows connected
 over SSH to tmux (WezTerm on Linux works); see [TODO.md](TODO.md).
 
-An embedded PDF (Confluence's PDF macro, `viewpdf`, e.g. an offline copy from
-the mirror's [embeds file](#embedded-documents)) shows as a slide show in its
+An embedded PDF (Confluence's PDF macro, `viewpdf`, or a local copy mapped in the
+[embeds file](#embedded-documents)) shows as a slide show in its
 place: one page at a time, `[`/`]` turn the pages, and `i` shows every page full
 screen. The pages are rendered with MuPDF's `mutool` or, failing that, Poppler's
 `pdftoppm` (`apt install mupdf-tools` / `poppler-utils`, `brew install mupdf`
@@ -627,6 +627,12 @@ archive; the slides are rendered where the page is viewed. A Widget Connector
 with no mapping is reported in the export's warnings, so the log shows what is
 still missing. The live pages are not changed. Pages are only re-read when
 they changed, so after adding a mapping export once without `--since`.
+
+The page browser (`confluence browse`) reads the same embeds file when it shows
+live pages: a mapped embed shows as it would in the mirror (a PDF as a slide
+show), read from the local file, so the exporting machine sees the slides
+without a mirror. An attachment of the page with the same name wins, as in the
+export.
 
 ## Output Formats
 
